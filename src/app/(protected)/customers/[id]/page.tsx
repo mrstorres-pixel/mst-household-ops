@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { saveCustomerTemplate } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { getCustomer, listItems } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -40,7 +41,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
               <div className="field"><label>Qty</label><input className="input" name="quantity" type="number" step="0.01" defaultValue="1" /></div>
               <div className="field"><label>Price</label><input className="input" name="price" type="number" step="0.01" defaultValue="0" /></div>
             </div>
-            <button className="btn" type="submit">Save Template</button>
+            <SubmitButton pendingText="Saving template...">Save Template</SubmitButton>
           </form>
         </section>
         <section className="grid gap-5">

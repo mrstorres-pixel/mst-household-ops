@@ -1,5 +1,7 @@
 import { createInvoice } from "@/app/actions";
+import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listItems } from "@/lib/data";
 import { todayISO } from "@/lib/format";
 
@@ -45,29 +47,14 @@ export default async function NewInvoicePage() {
             <label>Notes</label>
             <textarea className="input" name="notes" rows={2} />
           </div>
+          <div className="field md:col-span-3">
+            <label>Invoice Image / Attachment</label>
+            <input className="input" name="attachment" type="file" accept="image/*,.pdf" />
+          </div>
         </section>
 
-        <section className="card table-wrap">
-          <table>
-            <thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th></tr></thead>
-            <tbody>
-              {[0, 1, 2, 3, 4].map((index) => (
-                <tr key={index}>
-                  <td>
-                    <select className="input" name="item_id" required={index === 0}>
-                      <option value="">Select item</option>
-                      {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
-                    </select>
-                  </td>
-                  <td><input className="input" name="description" placeholder="Description" /></td>
-                  <td><input className="input" name="quantity" type="number" step="0.01" defaultValue={index === 0 ? "1" : ""} /></td>
-                  <td><input className="input" name="unit_price" type="number" step="0.01" defaultValue="" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-        <div><button className="btn" type="submit">Post and Print Invoice</button></div>
+        <InvoiceLines items={items} />
+        <div><SubmitButton pendingText="Posting invoice...">Post and Print Invoice</SubmitButton></div>
       </form>
     </>
   );

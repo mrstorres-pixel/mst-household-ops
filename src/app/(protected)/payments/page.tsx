@@ -1,5 +1,6 @@
 import { recordPayment } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listPayments } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
@@ -28,8 +29,9 @@ export default async function PaymentsPage() {
           </div>
           <div className="field"><label>Reference / Cheque No.</label><input className="input" name="reference" /></div>
           <div className="field"><label>Bank Name</label><input className="input" name="bank_name" /></div>
+          <div className="field"><label>Cheque / Receipt Image</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" /></div>
           <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} /></div>
-          <button className="btn" type="submit">Post Payment</button>
+          <SubmitButton pendingText="Posting payment...">Post Payment</SubmitButton>
         </form>
         <div className="card table-wrap">
           <table>

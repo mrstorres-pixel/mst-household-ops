@@ -11,13 +11,27 @@ export async function getProfile() {
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) return null;
 
-  const { data } = await supabase
+  const { data: existing } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", userData.user.id)
     .maybeSingle();
 
-  return data ?? { id: userData.user.id, email: userData.user.email, role: "staff", full_name: "" };
+  if (existing) return existing;
+
+  const { data: countRows } = await supabase.from("profiles").select("id").limit(1);
+  const role = countRows?.length ? "staff" : "admin";
+  const { data } = await supabase
+    .from("profiles")
+    .insert({
+      id: userData.user.id,
+      email: userData.user.email ?? "",
+      role
+    })
+    .select("*")
+    .maybeSingle();
+
+  return data ?? { id: userData.user.id, email: userData.user.email, role, full_name: "" };
 }
 
 export async function listCustomers(search?: string) {
@@ -87,6 +101,18 @@ export async function listSuppliers() {
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
   const { data } = await supabase.from("supplier_balances").select("*").order("name");
+  return data ?? [];
+}
+
+export async function listSupplierAdjustments() {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("supplier_adjustments")
+    .select("*, suppliers(name), items(name, sku)")
+    .order("adjustment_date", { ascending: false })
+    .limit(100);
   return data ?? [];
 }
 
@@ -165,7 +191,7 @@ export async function listDamages() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("damage_records")
-    .select("*, items(name, sku)")
+    .select("*, items(name, sku), customers(name), suppliers(name)")
     .order("damage_date", { ascending: false })
     .limit(100);
   return data ?? [];
@@ -175,17 +201,18 @@ export async function getDailyReport(date: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [invoices, payments, cash, expenses, returns, damages, cheques, purchases, supplierPayments, stock] =
+  const [invoices, payments, cash, expenses, returns, damages, cheques, purchases, supplierPayments, supplierAdjustments, stock] =
     await Promise.all([
-      supabase.from("invoices").select("total").eq("invoice_date", date),
-      supabase.from("payments").select("amount, method").eq("payment_date", date),
+      supabase.from("invoices").select("invoice_number, invoice_date, total, customers(name)").eq("invoice_date", date),
+      supabase.from("payments").select("amount, method, reference, customers(name)").eq("payment_date", date),
       supabase.from("cash_sales").select("amount").eq("sale_date", date),
       supabase.from("expenses").select("amount").eq("expense_date", date),
-      supabase.from("returns").select("amount").eq("return_date", date),
-      supabase.from("damage_records").select("estimated_cost").eq("damage_date", date),
-      supabase.from("cheques").select("amount, status").or(`received_date.eq.${date},redeemed_date.eq.${date}`),
-      supabase.from("purchase_orders").select("total").eq("order_date", date),
-      supabase.from("supplier_payments").select("amount").eq("payment_date", date),
+      supabase.from("returns").select("amount, customers(name), items(name)").eq("return_date", date),
+      supabase.from("damage_records").select("estimated_cost, balance_credit, reason, customers(name), suppliers(name), items(name)").eq("damage_date", date),
+      supabase.from("cheques").select("amount, status, cheque_number, bank_name, customers(name)").or(`received_date.eq.${date},redeemed_date.eq.${date}`),
+      supabase.from("purchase_orders").select("supplier_invoice_number, total, quantity, suppliers(name), items(name)").eq("order_date", date),
+      supabase.from("supplier_payments").select("amount, reference, suppliers(name)").eq("payment_date", date),
+      supabase.from("supplier_adjustments").select("amount, adjustment_type, reason, suppliers(name), items(name)").eq("adjustment_date", date),
       supabase.from("inventory_stock_value").select("stock_value").maybeSingle()
     ]);
   const sum = (rows?: Row[] | null, key = "amount") => (rows ?? []).reduce((total, row) => total + Number(row[key] ?? 0), 0);
@@ -203,7 +230,16 @@ export async function getDailyReport(date: string) {
     chequesRedeemed: sum((cheques.data ?? []).filter((row) => row.status === "redeemed")),
     purchasesTotal: sum(purchases.data, "total"),
     supplierPaymentsTotal: sum(supplierPayments.data),
-    stockValue: Number(stock.data?.stock_value ?? 0)
+    supplierAdjustmentsTotal: sum(supplierAdjustments.data),
+    stockValue: Number(stock.data?.stock_value ?? 0),
+    invoiceRows: invoices.data ?? [],
+    paymentRows: payments.data ?? [],
+    returnRows: returns.data ?? [],
+    damageRows: damages.data ?? [],
+    chequeRows: cheques.data ?? [],
+    purchaseRows: purchases.data ?? [],
+    supplierPaymentRows: supplierPayments.data ?? [],
+    supplierAdjustmentRows: supplierAdjustments.data ?? []
   };
 }
 

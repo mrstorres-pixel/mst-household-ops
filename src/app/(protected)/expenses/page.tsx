@@ -1,5 +1,6 @@
 import { recordExpense } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { listExpenses } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
@@ -16,7 +17,7 @@ export default async function ExpensesPage() {
           <div className="field"><label>Category</label><input className="input" name="category" defaultValue="general" /></div>
           <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
           <div className="field"><label>Date</label><input className="input" name="expense_date" type="date" defaultValue={todayISO()} /></div>
-          <button className="btn" type="submit">Save Expense</button>
+          <SubmitButton pendingText="Saving expense...">Save Expense</SubmitButton>
         </form>
         <div className="card table-wrap">
           <table>

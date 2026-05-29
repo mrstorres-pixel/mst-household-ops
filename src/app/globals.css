@@ -87,6 +87,11 @@ textarea {
   color: var(--foreground);
 }
 
+.btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .card {
   border: 1px solid var(--border);
   border-radius: 8px;

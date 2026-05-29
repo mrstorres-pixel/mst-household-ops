@@ -1,5 +1,6 @@
 import { createItem } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { listItems } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -23,7 +24,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             <div className="field"><label>Quantity</label><input className="input" name="current_quantity" type="number" step="0.01" /></div>
             <div className="field"><label>Reorder</label><input className="input" name="reorder_level" type="number" step="0.01" /></div>
           </div>
-          <button className="btn" type="submit">Save Item</button>
+          <SubmitButton pendingText="Saving item...">Save Item</SubmitButton>
         </form>
         <div className="card table-wrap">
           <table>

@@ -1,5 +1,6 @@
 import { updateSettings } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { getSettings } from "@/lib/data";
 
 export default async function SettingsPage() {
@@ -12,7 +13,7 @@ export default async function SettingsPage() {
         <div className="field"><label>Business Name</label><input className="input" name="business_name" defaultValue={settings.business_name} /></div>
         <div className="field"><label>Currency</label><input className="input" name="currency" defaultValue={settings.currency} /></div>
         <div className="field"><label>Timezone</label><input className="input" name="timezone" defaultValue={settings.timezone} /></div>
-        <button className="btn" type="submit">Save Settings</button>
+        <SubmitButton pendingText="Saving settings...">Save Settings</SubmitButton>
       </form>
     </>
   );

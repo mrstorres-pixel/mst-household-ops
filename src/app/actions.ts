@@ -16,6 +16,41 @@ async function requireSupabase() {
   return createClient();
 }
 
+async function uploadOptionalFile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  formData: FormData,
+  fieldName: string,
+  ownerType: string,
+  ownerId?: string
+) {
+  const file = formData.get(fieldName);
+  if (!(file instanceof File) || file.size === 0) return null;
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = `${ownerType}/${ownerId ?? "pending"}/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage
+    .from("mst-attachments")
+    .upload(path, await file.arrayBuffer(), {
+      contentType: file.type || "application/octet-stream",
+      upsert: false
+    });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("app_files")
+    .insert({
+      owner_type: ownerType,
+      owner_id: ownerId ?? null,
+      file_name: file.name,
+      file_path: path,
+      content_type: file.type || null
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
 export async function signIn(formData: FormData) {
   const supabase = await requireSupabase();
   const email = text(formData, "email");
@@ -39,18 +74,18 @@ export async function createCustomer(formData: FormData) {
       account_code: z.string().optional(),
       phone: z.string().optional(),
       address: z.string().optional(),
-      payment_mode: z.string().default("cash")
+      payment_mode: z.string().optional()
     })
     .parse({
       name: text(formData, "name"),
       account_code: text(formData, "account_code") || undefined,
       phone: text(formData, "phone") || undefined,
       address: text(formData, "address") || undefined,
-      payment_mode: text(formData, "payment_mode") || "cash"
+      payment_mode: text(formData, "payment_mode") || undefined
     });
 
   const { data, error } = await supabase.from("customers").insert(parsed).select("id").single();
-  if (error) throw error;
+  if (error) redirect(`/customers?error=${encodeURIComponent(error.message)}`);
 
   const subaccounts = text(formData, "subaccounts")
     .split(",")
@@ -138,6 +173,11 @@ export async function createInvoice(formData: FormData) {
     .single();
   if (error) throw error;
 
+  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "customer_invoice", invoice.id);
+  if (attachmentId) {
+    await supabase.from("invoices").update({ attachment_file_id: attachmentId }).eq("id", invoice.id);
+  }
+
   await supabase.from("invoice_items").insert(lines.map((line) => ({ ...line, invoice_id: invoice.id })));
   await supabase.from("customer_ledger_entries").insert({
     customer_id: customerId,
@@ -209,6 +249,11 @@ export async function recordPayment(formData: FormData) {
     .single();
   if (error) throw error;
 
+  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "payment", payment.id);
+  if (attachmentId) {
+    await supabase.from("payments").update({ attachment_file_id: attachmentId }).eq("id", payment.id);
+  }
+
   await supabase.from("customer_ledger_entries").insert({
     customer_id: customerId,
     subaccount_id: subaccountId,
@@ -220,14 +265,18 @@ export async function recordPayment(formData: FormData) {
   });
 
   if (method === "cheque") {
-    await supabase.from("cheques").insert({
+    const { data: cheque } = await supabase.from("cheques").insert({
       payment_id: payment.id,
       customer_id: customerId,
       cheque_number: text(formData, "reference") || null,
       bank_name: text(formData, "bank_name") || null,
       amount,
-      received_date: text(formData, "payment_date") || new Date().toISOString().slice(0, 10)
-    });
+      received_date: text(formData, "payment_date") || new Date().toISOString().slice(0, 10),
+      attachment_file_id: attachmentId
+    }).select("id").single();
+    if (attachmentId && cheque?.id) {
+      await supabase.from("app_files").update({ owner_type: "cheque", owner_id: cheque.id }).eq("id", attachmentId);
+    }
   }
 
   revalidatePath("/payments");
@@ -251,12 +300,20 @@ export async function recordDamage(formData: FormData) {
   const itemId = text(formData, "item_id");
   const quantity = asNumber(formData.get("quantity"));
   const estimatedCost = asNumber(formData.get("estimated_cost"));
+  const customerId = text(formData, "customer_id") || null;
+  const subaccountId = text(formData, "subaccount_id") || null;
+  const supplierId = text(formData, "supplier_id") || null;
+  const balanceCredit = asNumber(formData.get("balance_credit"));
   const { data: damage } = await supabase
     .from("damage_records")
     .insert({
       item_id: itemId,
+      customer_id: customerId,
+      subaccount_id: subaccountId,
+      supplier_id: supplierId,
       quantity,
       estimated_cost: estimatedCost,
+      balance_credit: balanceCredit,
       reason: text(formData, "reason") || null,
       damage_date: text(formData, "damage_date") || new Date().toISOString().slice(0, 10)
     })
@@ -271,6 +328,26 @@ export async function recordDamage(formData: FormData) {
     reference_id: damage?.id,
     notes: text(formData, "reason") || null
   });
+  if (customerId && balanceCredit > 0) {
+    await supabase.from("customer_ledger_entries").insert({
+      customer_id: customerId,
+      subaccount_id: subaccountId,
+      entry_type: "damage_credit",
+      description: text(formData, "reason") || "Damage/return credit",
+      debit: 0,
+      credit: balanceCredit
+    });
+  }
+  if (supplierId && balanceCredit > 0) {
+    await supabase.from("supplier_adjustments").insert({
+      supplier_id: supplierId,
+      item_id: itemId,
+      adjustment_type: "damage",
+      quantity,
+      amount: balanceCredit,
+      reason: text(formData, "reason") || null
+    });
+  }
   revalidatePath("/inventory");
   revalidatePath("/inventory/damages");
 }
@@ -284,9 +361,20 @@ export async function recordSupplierPurchase(formData: FormData) {
   const total = quantity * unitCost;
   const { data: purchase } = await supabase
     .from("purchase_orders")
-    .insert({ supplier_id: supplierId, item_id: itemId, quantity, unit_cost: unitCost, total })
+    .insert({
+      supplier_id: supplierId,
+      item_id: itemId,
+      quantity,
+      unit_cost: unitCost,
+      total,
+      supplier_invoice_number: text(formData, "supplier_invoice_number") || null
+    })
     .select("id")
     .single();
+  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_invoice", purchase?.id);
+  if (attachmentId && purchase?.id) {
+    await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).eq("id", purchase.id);
+  }
   await supabase.from("inventory_movements").insert({
     item_id: itemId,
     movement_type: "purchase",
@@ -319,6 +407,29 @@ export async function recordSupplierPayment(formData: FormData) {
     notes: text(formData, "notes") || null
   });
   revalidatePath("/suppliers");
+}
+
+export async function recordSupplierAdjustment(formData: FormData) {
+  const supabase = await requireSupabase();
+  const { data: adjustment } = await supabase
+    .from("supplier_adjustments")
+    .insert({
+      supplier_id: text(formData, "supplier_id"),
+      item_id: text(formData, "item_id") || null,
+      adjustment_type: text(formData, "adjustment_type") || "return",
+      quantity: asNumber(formData.get("quantity")),
+      amount: asNumber(formData.get("amount")),
+      reason: text(formData, "reason") || null,
+      adjustment_date: text(formData, "adjustment_date") || new Date().toISOString().slice(0, 10)
+    })
+    .select("id")
+    .single();
+  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_adjustment", adjustment?.id);
+  if (attachmentId && adjustment?.id) {
+    await supabase.from("supplier_adjustments").update({ attachment_file_id: attachmentId }).eq("id", adjustment.id);
+  }
+  revalidatePath("/suppliers");
+  revalidatePath("/reports/daily");
 }
 
 export async function recordExpense(formData: FormData) {

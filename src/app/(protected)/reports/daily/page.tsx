@@ -4,6 +4,12 @@ import { getDailyReport } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 import { Banknote, Boxes, ReceiptText, RotateCcw, Truck, WalletCards } from "lucide-react";
 
+function relationName(value: unknown) {
+  if (Array.isArray(value)) return String(value[0]?.name ?? "");
+  if (value && typeof value === "object" && "name" in value) return String(value.name ?? "");
+  return "";
+}
+
 export default async function DailyReportPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const params = await searchParams;
   const date = params.date ?? todayISO();
@@ -30,6 +36,55 @@ export default async function DailyReportPage({ searchParams }: { searchParams: 
       ) : (
         <p>No report data. Configure Supabase first.</p>
       )}
+      {report ? (
+        <div className="mt-6 grid gap-5">
+          <section className="card table-wrap">
+            <table>
+              <thead><tr><th>Customer</th><th>Invoice No.</th><th>Total</th></tr></thead>
+              <tbody>
+                {report.invoiceRows.map((row) => <tr key={row.invoice_number}><td>{relationName(row.customers)}</td><td>{row.invoice_number}</td><td>{money(row.total)}</td></tr>)}
+                {!report.invoiceRows.length ? <tr><td colSpan={3}>No customer invoices for this date.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+          <section className="card table-wrap">
+            <table>
+              <thead><tr><th>Customer</th><th>Method</th><th>Reference</th><th>Amount</th></tr></thead>
+              <tbody>
+                {report.paymentRows.map((row, index) => <tr key={`${row.reference ?? row.method}-${index}`}><td>{relationName(row.customers)}</td><td>{row.method}</td><td>{row.reference}</td><td>{money(row.amount)}</td></tr>)}
+                {!report.paymentRows.length ? <tr><td colSpan={4}>No customer payments for this date.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+          <section className="card table-wrap">
+            <table>
+              <thead><tr><th>Supplier</th><th>Invoice No.</th><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
+              <tbody>
+                {report.purchaseRows.map((row, index) => <tr key={`${row.supplier_invoice_number ?? "supplier"}-${index}`}><td>{relationName(row.suppliers)}</td><td>{row.supplier_invoice_number}</td><td>{relationName(row.items)}</td><td>{row.quantity}</td><td>{money(row.total)}</td></tr>)}
+                {!report.purchaseRows.length ? <tr><td colSpan={5}>No supplier invoices for this date.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+          <section className="card table-wrap">
+            <table>
+              <thead><tr><th>Supplier</th><th>Type</th><th>Item</th><th>Amount Deducted</th><th>Reason</th></tr></thead>
+              <tbody>
+                {report.supplierAdjustmentRows.map((row, index) => <tr key={`${row.adjustment_type}-${index}`}><td>{relationName(row.suppliers)}</td><td>{row.adjustment_type}</td><td>{relationName(row.items) || "-"}</td><td>{money(row.amount)}</td><td>{row.reason}</td></tr>)}
+                {!report.supplierAdjustmentRows.length ? <tr><td colSpan={5}>No supplier returns or damages for this date.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+          <section className="card table-wrap">
+            <table>
+              <thead><tr><th>Customer</th><th>Supplier</th><th>Item</th><th>Balance Deduction</th><th>Reason</th></tr></thead>
+              <tbody>
+                {report.damageRows.map((row, index) => <tr key={`${row.reason ?? "damage"}-${index}`}><td>{relationName(row.customers) || "-"}</td><td>{relationName(row.suppliers) || "-"}</td><td>{relationName(row.items)}</td><td>{money(row.balance_credit)}</td><td>{row.reason}</td></tr>)}
+                {!report.damageRows.length ? <tr><td colSpan={5}>No damage or return deductions for this date.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }
