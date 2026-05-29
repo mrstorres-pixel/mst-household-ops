@@ -48,7 +48,7 @@ export async function getCustomer(id: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [{ data: customer }, { data: subaccounts }, { data: template }, { data: ledger }] = await Promise.all([
+  const [{ data: customer }, { data: subaccounts }, { data: template }, { data: ledger }, { data: invoices }, { data: payments }] = await Promise.all([
     supabase.from("customers").select("*").eq("id", id).maybeSingle(),
     supabase.from("customer_subaccount_balances").select("*").eq("customer_id", id).order("name"),
     supabase
@@ -61,9 +61,21 @@ export async function getCustomer(id: string) {
       .select("*")
       .eq("customer_id", id)
       .order("entry_date", { ascending: false })
-      .limit(50)
+      .limit(50),
+    supabase
+      .from("invoices")
+      .select("invoice_number, invoice_date, total, status")
+      .eq("customer_id", id)
+      .order("invoice_date", { ascending: false })
+      .limit(20),
+    supabase
+      .from("payments")
+      .select("payment_date, method, amount, reference")
+      .eq("customer_id", id)
+      .order("payment_date", { ascending: false })
+      .limit(20)
   ]);
-  return { customer, subaccounts: subaccounts ?? [], template: template ?? [], ledger: ledger ?? [] };
+  return { customer, subaccounts: subaccounts ?? [], template: template ?? [], ledger: ledger ?? [], invoices: invoices ?? [], payments: payments ?? [] };
 }
 
 export async function listItems(search?: string) {
@@ -72,7 +84,7 @@ export async function listItems(search?: string) {
   const supabase = await createClient();
   let query = supabase
     .from("items")
-    .select("*, categories(name)")
+    .select("*, categories(name), suppliers(name)")
     .eq("is_active", true)
     .order("name");
   if (search) query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);

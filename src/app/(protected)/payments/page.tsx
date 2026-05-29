@@ -29,7 +29,7 @@ export default async function PaymentsPage() {
           </div>
           <div className="field"><label>Reference / Cheque No.</label><input className="input" name="reference" /></div>
           <div className="field"><label>Bank Name</label><input className="input" name="bank_name" /></div>
-          <div className="field"><label>Cheque / Receipt Image</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" /></div>
+          <div className="field"><label>Cheque / Receipt Image</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
           <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} /></div>
           <SubmitButton pendingText="Posting payment...">Post Payment</SubmitButton>
         </form>

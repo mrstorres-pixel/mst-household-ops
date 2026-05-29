@@ -31,18 +31,20 @@ export default async function DamagesPage() {
           <div className="field"><label>Quantity</label><input className="input" name="quantity" type="number" step="0.01" required /></div>
           <div className="field"><label>Estimated Cost</label><input className="input" name="estimated_cost" type="number" step="0.01" /></div>
           <div className="field"><label>Balance Deduction Amount</label><input className="input" name="balance_credit" type="number" step="0.01" /></div>
+          <div className="field"><label>Missing / Repair Parts</label><input className="input" name="missing_parts" placeholder="Box, mirror, hangers" /></div>
+          <div className="field"><label>Repair Charge To Customer</label><input className="input" name="repair_charge" type="number" step="0.01" /></div>
           <div className="field"><label>Date</label><input className="input" name="damage_date" type="date" defaultValue={todayISO()} /></div>
           <div className="field"><label>Reason</label><textarea className="input" name="reason" rows={3} /></div>
           <SubmitButton pendingText="Recording...">Record Damage / Return</SubmitButton>
         </form>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Item</th><th>Customer</th><th>Supplier</th><th>Qty</th><th>Balance Deduction</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Date</th><th>Item</th><th>Customer</th><th>Supplier</th><th>Qty</th><th>Deduction</th><th>Repair Charge</th><th>Missing / Repair Parts</th><th>Reason</th></tr></thead>
             <tbody>
               {damages.map((row) => (
-                <tr key={row.id}><td>{row.damage_date}</td><td>{row.items?.name}</td><td>{row.customers?.name ?? "-"}</td><td>{row.suppliers?.name ?? "-"}</td><td>{row.quantity}</td><td>{money(row.balance_credit)}</td><td>{row.reason}</td></tr>
+                <tr key={row.id}><td>{row.damage_date}</td><td>{row.items?.name}</td><td>{row.customers?.name ?? "-"}</td><td>{row.suppliers?.name ?? "-"}</td><td>{row.quantity}</td><td>{money(row.balance_credit)}</td><td>{money(row.repair_charge)}</td><td>{row.missing_parts}</td><td>{row.reason}</td></tr>
               ))}
-              {!damages.length ? <tr><td colSpan={7}>No damage records.</td></tr> : null}
+              {!damages.length ? <tr><td colSpan={9}>No damage records.</td></tr> : null}
             </tbody>
           </table>
         </div>

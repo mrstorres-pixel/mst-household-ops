@@ -46,41 +46,48 @@ export function InvoiceLines({ items }: { items: ItemOption[] }) {
   }
 
   return (
-    <section className="card table-wrap">
-      <table>
-        <thead>
-          <tr><th>Qty</th><th>Item</th><th>Description</th><th>Unit Price</th><th>Total</th></tr>
-        </thead>
-        <tbody>
-          {lines.map((line, index) => {
-            const lineTotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
-            return (
-              <tr key={index}>
-                <td>
-                  <input className="input" name="quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
-                </td>
-                <td>
-                  <select className="input" name="item_id" required={index === 0} value={line.itemId} onChange={(event) => selectItem(index, event.target.value)}>
-                    <option value="">Select item</option>
-                    {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
-                  </select>
-                </td>
-                <td>
-                  <input className="input" name="description" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
-                </td>
-                <td>
-                  <input className="input" name="unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} />
-                </td>
-                <td className="font-bold">{money(lineTotal)}</td>
-              </tr>
-            );
-          })}
-          <tr>
-            <td colSpan={4} className="text-right font-bold">Invoice Total</td>
-            <td className="font-bold">{money(total)}</td>
-          </tr>
-        </tbody>
-      </table>
+    <section className="card">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Qty</th><th>Item</th><th>Description</th><th>Unit Price</th><th>Total</th></tr>
+          </thead>
+          <tbody>
+            {lines.map((line, index) => {
+              const lineTotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
+              return (
+                <tr key={index}>
+                  <td>
+                    <input className="input" name="quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                  </td>
+                  <td>
+                    <select className="input" name="item_id" required={index === 0} value={line.itemId} onChange={(event) => selectItem(index, event.target.value)}>
+                      <option value="">Select item</option>
+                      {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <input className="input" name="description" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
+                  </td>
+                  <td>
+                    <input className="input" name="unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} />
+                  </td>
+                  <td className="font-bold">{money(lineTotal)}</td>
+                </tr>
+              );
+            })}
+            <tr>
+              <td colSpan={4} className="text-right font-bold">Invoice Total</td>
+              <td className="font-bold">{money(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="p-4">
+        <button className="btn btn-secondary" type="button" onClick={() => setLines((current) => [...current, emptyLine(current.length)])}>
+          Add another item
+        </button>
+      </div>
     </section>
   );
 }

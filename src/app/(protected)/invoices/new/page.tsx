@@ -49,7 +49,7 @@ export default async function NewInvoicePage() {
           </div>
           <div className="field md:col-span-3">
             <label>Invoice Image / Attachment</label>
-            <input className="input" name="attachment" type="file" accept="image/*,.pdf" />
+            <input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" />
           </div>
         </section>
 

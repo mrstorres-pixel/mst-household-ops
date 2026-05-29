@@ -98,6 +98,50 @@ export async function createCustomer(formData: FormData) {
   redirect(`/customers/${data.id}`);
 }
 
+export async function updateCustomer(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const { error } = await supabase
+    .from("customers")
+    .update({
+      name: text(formData, "name"),
+      account_code: text(formData, "account_code") || null,
+      phone: text(formData, "phone") || null,
+      address: text(formData, "address") || null,
+      notes: text(formData, "notes") || null
+    })
+    .eq("id", customerId);
+  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  revalidatePath(`/customers/${customerId}`);
+}
+
+export async function addCustomerSubaccount(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const name = text(formData, "name");
+  if (!name) return;
+  const { error } = await supabase.from("customer_subaccounts").insert({ customer_id: customerId, name });
+  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  revalidatePath(`/customers/${customerId}`);
+}
+
+export async function removeCustomerSubaccount(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const subaccountId = text(formData, "subaccount_id");
+  const { data: balanceRow } = await supabase
+    .from("customer_subaccount_balances")
+    .select("balance")
+    .eq("subaccount_id", subaccountId)
+    .maybeSingle();
+  if (Number(balanceRow?.balance ?? 0) !== 0) {
+    redirect(`/customers/${customerId}?error=${encodeURIComponent("Only zero-balance sub-balances can be removed.")}`);
+  }
+  const { error } = await supabase.from("customer_subaccounts").delete().eq("id", subaccountId);
+  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  revalidatePath(`/customers/${customerId}`);
+}
+
 export async function createItem(formData: FormData) {
   const supabase = await requireSupabase();
   const categoryName = text(formData, "category");
@@ -110,15 +154,26 @@ export async function createItem(formData: FormData) {
       .single();
     categoryId = data?.id ?? null;
   }
-  await supabase.from("items").insert({
+  const { data: item } = await supabase.from("items").insert({
     sku: text(formData, "sku") || null,
     name: text(formData, "name"),
     category_id: categoryId,
+    primary_supplier_id: text(formData, "supplier_id") || null,
     default_price: asNumber(formData.get("default_price")),
     unit_cost: asNumber(formData.get("unit_cost")),
     current_quantity: asNumber(formData.get("current_quantity")),
     reorder_level: asNumber(formData.get("reorder_level"))
-  });
+  }).select("id").single();
+  if (item?.id && text(formData, "supplier_id")) {
+    await supabase.from("supplier_items").upsert(
+      {
+        supplier_id: text(formData, "supplier_id"),
+        item_id: item.id,
+        supplier_price: asNumber(formData.get("unit_cost"))
+      },
+      { onConflict: "supplier_id,item_id" }
+    );
+  }
   revalidatePath("/inventory");
 }
 
@@ -304,6 +359,8 @@ export async function recordDamage(formData: FormData) {
   const subaccountId = text(formData, "subaccount_id") || null;
   const supplierId = text(formData, "supplier_id") || null;
   const balanceCredit = asNumber(formData.get("balance_credit"));
+  const repairCharge = asNumber(formData.get("repair_charge"));
+  const missingParts = text(formData, "missing_parts");
   const { data: damage } = await supabase
     .from("damage_records")
     .insert({
@@ -314,6 +371,8 @@ export async function recordDamage(formData: FormData) {
       quantity,
       estimated_cost: estimatedCost,
       balance_credit: balanceCredit,
+      missing_parts: missingParts || null,
+      repair_charge: repairCharge,
       reason: text(formData, "reason") || null,
       damage_date: text(formData, "damage_date") || new Date().toISOString().slice(0, 10)
     })
@@ -337,6 +396,33 @@ export async function recordDamage(formData: FormData) {
       debit: 0,
       credit: balanceCredit
     });
+  }
+  if (customerId && repairCharge > 0) {
+    const description = missingParts
+      ? `Repair charge for missing/damaged ${missingParts}`
+      : text(formData, "reason") || "Repair charge";
+    const { data: charge } = await supabase
+      .from("charges")
+      .insert({
+        customer_id: customerId,
+        subaccount_id: subaccountId,
+        description,
+        amount: repairCharge
+      })
+      .select("id")
+      .single();
+    await supabase.from("customer_ledger_entries").insert({
+      customer_id: customerId,
+      subaccount_id: subaccountId,
+      entry_type: "repair_charge",
+      description,
+      debit: repairCharge,
+      credit: 0,
+      invoice_id: null
+    });
+    if (charge?.id) {
+      await supabase.from("app_files").update({ owner_type: "charge", owner_id: charge.id }).eq("owner_type", "pending_charge");
+    }
   }
   if (supplierId && balanceCredit > 0) {
     await supabase.from("supplier_adjustments").insert({

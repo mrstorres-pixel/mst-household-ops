@@ -1,12 +1,12 @@
 import { createItem } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { listItems } from "@/lib/data";
+import { listItems, listSuppliers } from "@/lib/data";
 import { money } from "@/lib/format";
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const params = await searchParams;
-  const items = await listItems(params.q);
+  const [items, suppliers] = await Promise.all([listItems(params.q), listSuppliers()]);
   const totalValue = items.reduce((total, item) => total + Number(item.current_quantity ?? 0) * Number(item.unit_cost ?? 0), 0);
 
   return (
@@ -17,6 +17,13 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           <h3 className="text-xl font-bold">Add Item</h3>
           <div className="field"><label>Name</label><input className="input" name="name" required /></div>
           <div className="field"><label>SKU</label><input className="input" name="sku" /></div>
+          <div className="field">
+            <label>Supplier</label>
+            <select className="input" name="supplier_id">
+              <option value="">No supplier</option>
+              {suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}
+            </select>
+          </div>
           <div className="field"><label>Category</label><input className="input" name="category" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="field"><label>Default Price</label><input className="input" name="default_price" type="number" step="0.01" /></div>
@@ -28,11 +35,12 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         </form>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Item</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th></tr></thead>
+            <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th></tr></thead>
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
                   <td>{item.name}<br /><span className="text-sm text-[color:var(--muted-foreground)]">{item.sku}</span></td>
+                  <td>{item.suppliers?.name ?? "-"}</td>
                   <td>{item.categories?.name ?? "-"}</td>
                   <td>{item.current_quantity}</td>
                   <td>{money(item.default_price)}</td>
