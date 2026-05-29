@@ -136,12 +136,24 @@ export async function listSupplierAdjustments() {
   return data ?? [];
 }
 
+export async function listSupplierInvoices() {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("purchase_orders")
+    .select("*, suppliers(name), items(name, sku), app_files(id, file_name)")
+    .order("order_date", { ascending: false })
+    .limit(100);
+  return data ?? [];
+}
+
 export async function getInvoice(id: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
   const [{ data: invoice }, { data: lines }] = await Promise.all([
-    supabase.from("invoices").select("*, customers(name, address, phone)").eq("id", id).maybeSingle(),
+    supabase.from("invoices").select("*, customers(name, address, phone), app_files(id, file_name)").eq("id", id).maybeSingle(),
     supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id")
   ]);
   if (!invoice) return null;
@@ -154,9 +166,22 @@ export async function listPayments() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("payments")
-    .select("*, customers(name), customer_subaccounts(name)")
+    .select("*, customers(name), customer_subaccounts(name), app_files(id, file_name), payment_allocations(amount, invoices(invoice_number))")
     .order("payment_date", { ascending: false })
     .limit(100);
+  return data ?? [];
+}
+
+export async function listOpenInvoices() {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("invoice_payment_status")
+    .select("*, customers(name)")
+    .gt("remaining_balance", 0)
+    .order("invoice_date", { ascending: false })
+    .limit(200);
   return data ?? [];
 }
 
@@ -192,9 +217,41 @@ export async function listCheques() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("cheques")
-    .select("*, customers(name)")
+    .select("*, customers(name), app_files(id, file_name)")
     .order("received_date", { ascending: false });
   return data ?? [];
+}
+
+export async function getSupplierInvoice(id: string) {
+  noStore();
+  if (!hasSupabaseEnv()) return null;
+  const supabase = await createClient();
+  const [{ data: invoice }, { data: payments }, { data: adjustments }] = await Promise.all([
+    supabase
+      .from("purchase_orders")
+      .select("*, suppliers(*), items(name, sku), app_files(id, file_name)")
+      .eq("id", id)
+      .maybeSingle(),
+    supabase
+      .from("supplier_payments")
+      .select("*")
+      .eq("purchase_order_id", id)
+      .order("payment_date", { ascending: false }),
+    supabase
+      .from("supplier_adjustments")
+      .select("*, items(name, sku), app_files(id, file_name)")
+      .eq("purchase_order_id", id)
+      .order("adjustment_date", { ascending: false })
+  ]);
+  if (!invoice) return null;
+  const paid = (payments ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const adjusted = (adjustments ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  return {
+    invoice,
+    payments: payments ?? [],
+    adjustments: adjustments ?? [],
+    remaining: Number(invoice.total ?? 0) - paid - adjusted
+  };
 }
 
 export async function listExpenses() {
@@ -292,4 +349,37 @@ export async function getSettings() {
   const supabase = await createClient();
   const { data } = await supabase.from("app_settings").select("*").eq("id", true).maybeSingle();
   return data ?? { business_name: "MST Household", currency: "PHP", timezone: "Asia/Singapore" };
+}
+
+export async function globalSearch(queryText: string) {
+  noStore();
+  if (!hasSupabaseEnv() || !queryText.trim()) {
+    return { customers: [], suppliers: [], items: [], invoices: [], cheques: [], payments: [] };
+  }
+  const supabase = await createClient();
+  const q = `%${queryText.trim()}%`;
+  const [customers, suppliers, items, invoices, cheques, payments] = await Promise.all([
+    supabase.from("customers").select("id, name, account_code, phone").or(`name.ilike.${q},account_code.ilike.${q},phone.ilike.${q}`).limit(20),
+    supabase.from("suppliers").select("id, name, phone, contact_name").or(`name.ilike.${q},phone.ilike.${q},contact_name.ilike.${q}`).limit(20),
+    supabase.from("items").select("id, name, sku").or(`name.ilike.${q},sku.ilike.${q}`).limit(20),
+    supabase.from("invoices").select("id, invoice_number, total, customers(name)").ilike("invoice_number", q).limit(20),
+    supabase.from("cheques").select("id, cheque_number, amount, status, customers(name)").ilike("cheque_number", q).limit(20),
+    supabase.from("payments").select("id, reference, amount, method, customers(name)").ilike("reference", q).limit(20)
+  ]);
+  return {
+    customers: customers.data ?? [],
+    suppliers: suppliers.data ?? [],
+    items: items.data ?? [],
+    invoices: invoices.data ?? [],
+    cheques: cheques.data ?? [],
+    payments: payments.data ?? []
+  };
+}
+
+export async function listAuditLogs() {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(200);
+  return data ?? [];
 }

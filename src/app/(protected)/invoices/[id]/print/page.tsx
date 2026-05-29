@@ -28,6 +28,9 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
         <p>{data.invoice.customers?.name}</p>
         <p>{data.invoice.customers?.address}</p>
         <p>{data.invoice.customers?.phone}</p>
+        {data.invoice.app_files?.id ? (
+          <p className="mt-3 no-print"><a className="font-bold text-[color:var(--primary)]" href={`/attachments/${data.invoice.app_files.id}`} target="_blank">View invoice attachment</a></p>
+        ) : null}
       </section>
       <table>
         <thead><tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>

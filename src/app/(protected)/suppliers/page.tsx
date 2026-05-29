@@ -1,11 +1,12 @@
+import Link from "next/link";
 import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { listItems, listSupplierAdjustments, listSupplierRows, listSuppliers } from "@/lib/data";
+import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
 export default async function SuppliersPage() {
-  const [suppliers, supplierRows, items, adjustments] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments()]);
+  const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments(), listSupplierInvoices()]);
 
   return (
     <>
@@ -87,6 +88,25 @@ export default async function SuppliersPage() {
           </table>
         </div>
       </div>
+      <section className="mt-5 card table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Supplier Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Attachment</th><th>Open</th></tr></thead>
+          <tbody>
+            {supplierInvoices.map((invoice) => (
+              <tr key={invoice.id}>
+                <td>{invoice.order_date}</td>
+                <td>{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
+                <td>{invoice.suppliers?.name}</td>
+                <td>{invoice.items?.name}</td>
+                <td>{money(invoice.total)}</td>
+                <td>{invoice.app_files?.id ? <a className="font-bold text-[color:var(--primary)]" href={`/attachments/${invoice.app_files.id}`} target="_blank">View</a> : "-"}</td>
+                <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
+              </tr>
+            ))}
+            {!supplierInvoices.length ? <tr><td colSpan={7}>No supplier invoices yet.</td></tr> : null}
+          </tbody>
+        </table>
+      </section>
       <section className="mt-5 card table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount Deducted</th><th>Reason</th></tr></thead>

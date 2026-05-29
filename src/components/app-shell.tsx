@@ -8,6 +8,7 @@ import {
   Landmark,
   PackageSearch,
   ReceiptText,
+  Search,
   Settings,
   Truck,
   Users
@@ -16,6 +17,7 @@ import { signOut } from "@/app/actions";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/invoices/new", label: "New Invoice", icon: ReceiptText },
   { href: "/inventory", label: "Inventory", icon: Boxes },
@@ -26,6 +28,7 @@ const nav = [
   { href: "/expenses", label: "Expenses", icon: Banknote },
   { href: "/reports/daily", label: "Daily Report", icon: ClipboardList },
   { href: "/reports/cutoff", label: "Cutoff Report", icon: ClipboardList },
+  { href: "/audit", label: "Audit Log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 

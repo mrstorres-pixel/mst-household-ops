@@ -16,6 +16,30 @@ async function requireSupabase() {
   return createClient();
 }
 
+async function writeAudit(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  action: string,
+  entityType: string,
+  entityId: string | null,
+  summary: string,
+  metadata: Record<string, unknown> = {}
+) {
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from("audit_logs").insert({
+      actor_id: userData.user?.id ?? null,
+      actor_email: userData.user?.email ?? null,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      summary,
+      metadata
+    });
+  } catch {
+    // Audit logging should never block field operations.
+  }
+}
+
 async function uploadOptionalFile(
   supabase: Awaited<ReturnType<typeof createClient>>,
   formData: FormData,
@@ -93,6 +117,7 @@ export async function createCustomer(formData: FormData) {
     .filter(Boolean)
     .map((name) => ({ customer_id: data.id, name }));
   if (subaccounts.length) await supabase.from("customer_subaccounts").insert(subaccounts);
+  await writeAudit(supabase, "create", "customer", data.id, `Created customer ${parsed.name}`);
 
   revalidatePath("/customers");
   redirect(`/customers/${data.id}`);
@@ -112,6 +137,7 @@ export async function updateCustomer(formData: FormData) {
     })
     .eq("id", customerId);
   if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  await writeAudit(supabase, "update", "customer", customerId, `Updated customer ${text(formData, "name")}`);
   revalidatePath(`/customers/${customerId}`);
 }
 
@@ -122,6 +148,7 @@ export async function addCustomerSubaccount(formData: FormData) {
   if (!name) return;
   const { error } = await supabase.from("customer_subaccounts").insert({ customer_id: customerId, name });
   if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  await writeAudit(supabase, "create", "customer_subaccount", customerId, `Added sub-balance ${name}`);
   revalidatePath(`/customers/${customerId}`);
 }
 
@@ -139,12 +166,14 @@ export async function removeCustomerSubaccount(formData: FormData) {
   }
   const { error } = await supabase.from("customer_subaccounts").delete().eq("id", subaccountId);
   if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  await writeAudit(supabase, "delete", "customer_subaccount", subaccountId, "Removed customer sub-balance");
   revalidatePath(`/customers/${customerId}`);
 }
 
 export async function deleteCustomer(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("customers").update({ is_active: false }).eq("id", text(formData, "customer_id"));
+  await writeAudit(supabase, "delete", "customer", text(formData, "customer_id"), "Deleted customer");
   revalidatePath("/customers");
   redirect("/customers");
 }
@@ -181,6 +210,7 @@ export async function createItem(formData: FormData) {
       { onConflict: "supplier_id,item_id" }
     );
   }
+  await writeAudit(supabase, "create", "item", item?.id ?? null, `Created item ${text(formData, "name")}`);
   revalidatePath("/inventory");
 }
 
@@ -198,12 +228,14 @@ export async function updateItem(formData: FormData) {
       reorder_level: asNumber(formData.get("reorder_level"))
     })
     .eq("id", itemId);
+  await writeAudit(supabase, "update", "item", itemId, `Updated item ${text(formData, "name")}`);
   revalidatePath("/inventory");
 }
 
 export async function deleteItem(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));
+  await writeAudit(supabase, "delete", "item", text(formData, "item_id"), "Deleted item");
   revalidatePath("/inventory");
 }
 
@@ -257,6 +289,7 @@ export async function createInvoice(formData: FormData) {
     .select("id")
     .single();
   if (error) throw error;
+  await writeAudit(supabase, "create", "invoice", invoice.id, `Created customer invoice ${invoiceNumber}`, { total: subtotal });
 
   const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "customer_invoice", invoice.id);
   if (attachmentId) {
@@ -319,6 +352,8 @@ export async function recordPayment(formData: FormData) {
   const subaccountId = text(formData, "subaccount_id") || null;
   const method = text(formData, "method") as "cash" | "bank" | "cheque";
   const amount = asNumber(formData.get("amount"));
+  const invoiceId = text(formData, "invoice_id") || null;
+  const allocationAmount = asNumber(formData.get("allocation_amount")) || amount;
   const { data: payment, error } = await supabase
     .from("payments")
     .insert({
@@ -337,6 +372,15 @@ export async function recordPayment(formData: FormData) {
   const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "payment", payment.id);
   if (attachmentId) {
     await supabase.from("payments").update({ attachment_file_id: attachmentId }).eq("id", payment.id);
+  }
+
+  if (invoiceId) {
+    await supabase.from("payment_allocations").insert({
+      payment_id: payment.id,
+      invoice_id: invoiceId,
+      subaccount_id: subaccountId,
+      amount: allocationAmount
+    });
   }
 
   await supabase.from("customer_ledger_entries").insert({
@@ -363,6 +407,7 @@ export async function recordPayment(formData: FormData) {
       await supabase.from("app_files").update({ owner_type: "cheque", owner_id: cheque.id }).eq("id", attachmentId);
     }
   }
+  await writeAudit(supabase, "create", "payment", payment.id, `Recorded ${method} payment`, { amount, invoice_id: invoiceId });
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
@@ -377,12 +422,14 @@ export async function updateChequeStatus(formData: FormData) {
       redeemed_date: text(formData, "status") === "redeemed" ? new Date().toISOString().slice(0, 10) : null
     })
     .eq("id", text(formData, "cheque_id"));
+  await writeAudit(supabase, "status", "cheque", text(formData, "cheque_id"), `Updated cheque status to ${text(formData, "status")}`);
   revalidatePath("/cheques");
 }
 
 export async function deleteCheque(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("cheques").delete().eq("id", text(formData, "cheque_id"));
+  await writeAudit(supabase, "delete", "cheque", text(formData, "cheque_id"), "Deleted cheque");
   revalidatePath("/cheques");
 }
 
@@ -414,6 +461,7 @@ export async function recordDamage(formData: FormData) {
     })
     .select("id")
     .single();
+  await writeAudit(supabase, "create", "damage_record", damage?.id ?? null, "Recorded damage/return", { quantity, balanceCredit, repairCharge });
   await supabase.from("inventory_movements").insert({
     item_id: itemId,
     movement_type: "damage",
@@ -497,6 +545,7 @@ export async function recordSupplierPurchase(formData: FormData) {
   if (attachmentId && purchase?.id) {
     await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).eq("id", purchase.id);
   }
+  await writeAudit(supabase, "create", "supplier_invoice", purchase?.id ?? null, `Recorded supplier invoice ${text(formData, "supplier_invoice_number") || ""}`, { total });
   await supabase.from("inventory_movements").insert({
     item_id: itemId,
     movement_type: "purchase",
@@ -517,6 +566,7 @@ export async function createSupplier(formData: FormData) {
     phone: text(formData, "phone") || null,
     address: text(formData, "address") || null
   });
+  await writeAudit(supabase, "create", "supplier", null, `Created supplier ${text(formData, "name")}`);
   revalidatePath("/suppliers");
 }
 
@@ -531,12 +581,14 @@ export async function updateSupplier(formData: FormData) {
       address: text(formData, "address") || null
     })
     .eq("id", text(formData, "supplier_id"));
+  await writeAudit(supabase, "update", "supplier", text(formData, "supplier_id"), `Updated supplier ${text(formData, "name")}`);
   revalidatePath("/suppliers");
 }
 
 export async function deleteSupplier(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("suppliers").update({ is_active: false }).eq("id", text(formData, "supplier_id"));
+  await writeAudit(supabase, "delete", "supplier", text(formData, "supplier_id"), "Deleted supplier");
   revalidatePath("/suppliers");
 }
 
@@ -544,10 +596,12 @@ export async function recordSupplierPayment(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("supplier_payments").insert({
     supplier_id: text(formData, "supplier_id"),
+    purchase_order_id: text(formData, "purchase_order_id") || null,
     amount: asNumber(formData.get("amount")),
     reference: text(formData, "reference") || null,
     notes: text(formData, "notes") || null
   });
+  await writeAudit(supabase, "create", "supplier_payment", text(formData, "purchase_order_id") || null, "Recorded supplier payment", { amount: asNumber(formData.get("amount")) });
   revalidatePath("/suppliers");
 }
 
@@ -557,6 +611,7 @@ export async function recordSupplierAdjustment(formData: FormData) {
     .from("supplier_adjustments")
     .insert({
       supplier_id: text(formData, "supplier_id"),
+      purchase_order_id: text(formData, "purchase_order_id") || null,
       item_id: text(formData, "item_id") || null,
       adjustment_type: text(formData, "adjustment_type") || "return",
       quantity: asNumber(formData.get("quantity")),
@@ -570,6 +625,7 @@ export async function recordSupplierAdjustment(formData: FormData) {
   if (attachmentId && adjustment?.id) {
     await supabase.from("supplier_adjustments").update({ attachment_file_id: attachmentId }).eq("id", adjustment.id);
   }
+  await writeAudit(supabase, "create", "supplier_adjustment", adjustment?.id ?? null, "Recorded supplier adjustment", { amount: asNumber(formData.get("amount")) });
   revalidatePath("/suppliers");
   revalidatePath("/reports/daily");
 }
@@ -582,6 +638,7 @@ export async function recordExpense(formData: FormData) {
     amount: asNumber(formData.get("amount")),
     expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
   });
+  await writeAudit(supabase, "create", "expense", null, `Recorded expense ${text(formData, "description")}`, { amount: asNumber(formData.get("amount")) });
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
 }
@@ -597,6 +654,7 @@ export async function updateExpense(formData: FormData) {
       expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
     })
     .eq("id", text(formData, "expense_id"));
+  await writeAudit(supabase, "update", "expense", text(formData, "expense_id"), `Updated expense ${text(formData, "description")}`);
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
 }
@@ -604,6 +662,7 @@ export async function updateExpense(formData: FormData) {
 export async function deleteExpense(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("expenses").delete().eq("id", text(formData, "expense_id"));
+  await writeAudit(supabase, "delete", "expense", text(formData, "expense_id"), "Deleted expense");
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
 }
@@ -639,5 +698,6 @@ export async function updateSettings(formData: FormData) {
     },
     { onConflict: "id" }
   );
+  await writeAudit(supabase, "update", "settings", null, "Updated app settings");
   revalidatePath("/settings");
 }
