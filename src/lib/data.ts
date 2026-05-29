@@ -104,7 +104,7 @@ export async function listCustomerRows() {
   noStore();
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
-  const { data } = await supabase.from("customers").select("*, customer_subaccounts(*)").order("name");
+  const { data } = await supabase.from("customers").select("*, customer_subaccounts(*)").eq("is_active", true).order("name");
   return data ?? [];
 }
 
@@ -113,6 +113,14 @@ export async function listSuppliers() {
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
   const { data } = await supabase.from("supplier_balances").select("*").order("name");
+  return data ?? [];
+}
+
+export async function listSupplierRows() {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  const { data } = await supabase.from("suppliers").select("*").eq("is_active", true).order("name");
   return data ?? [];
 }
 

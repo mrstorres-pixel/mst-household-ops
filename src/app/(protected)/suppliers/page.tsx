@@ -1,11 +1,11 @@
-import { createSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase } from "@/app/actions";
+import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { listItems, listSupplierAdjustments, listSuppliers } from "@/lib/data";
+import { listItems, listSupplierAdjustments, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
 export default async function SuppliersPage() {
-  const [suppliers, items, adjustments] = await Promise.all([listSuppliers(), listItems(), listSupplierAdjustments()]);
+  const [suppliers, supplierRows, items, adjustments] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments()]);
 
   return (
     <>
@@ -54,10 +54,35 @@ export default async function SuppliersPage() {
         </form>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Supplier</th><th>Balance</th></tr></thead>
+            <thead><tr><th>Supplier</th><th>Balance</th><th>Edit / Delete</th></tr></thead>
             <tbody>
-              {suppliers.map((supplier) => <tr key={supplier.supplier_id}><td>{supplier.name}</td><td>{money(supplier.balance)}</td></tr>)}
-              {!suppliers.length ? <tr><td colSpan={2}>No suppliers yet.</td></tr> : null}
+              {suppliers.map((supplier) => {
+                const row = supplierRows.find((supplierRow) => supplierRow.id === supplier.supplier_id);
+                return (
+                  <tr key={supplier.supplier_id}>
+                    <td>{supplier.name}</td>
+                    <td>{money(supplier.balance)}</td>
+                    <td>
+                      <details>
+                        <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit</summary>
+                        <form action={updateSupplier} className="mt-3 grid min-w-72 gap-2">
+                          <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
+                          <input className="input" name="name" defaultValue={row?.name ?? supplier.name} />
+                          <input className="input" name="contact_name" defaultValue={row?.contact_name ?? ""} />
+                          <input className="input" name="phone" defaultValue={row?.phone ?? ""} />
+                          <textarea className="input" name="address" rows={2} defaultValue={row?.address ?? ""} />
+                          <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
+                        </form>
+                        <form action={deleteSupplier} className="mt-2">
+                          <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
+                          <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
+                        </form>
+                      </details>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!suppliers.length ? <tr><td colSpan={3}>No suppliers yet.</td></tr> : null}
             </tbody>
           </table>
         </div>

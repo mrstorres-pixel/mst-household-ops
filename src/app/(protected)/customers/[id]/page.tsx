@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { addCustomerSubaccount, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
+import { addCustomerSubaccount, deleteCustomer, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { getCustomer, listItems } from "@/lib/data";
@@ -35,6 +35,12 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
             <div className="field"><label>Address</label><textarea className="input" name="address" rows={3} defaultValue={data.customer.address ?? ""} /></div>
             <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={3} defaultValue={data.customer.notes ?? ""} /></div>
             <SubmitButton pendingText="Saving customer...">Save Customer</SubmitButton>
+          </form>
+          <form action={deleteCustomer} className="card grid gap-3 border-red-200 p-5">
+            <input type="hidden" name="customer_id" value={id} />
+            <h3 className="text-xl font-bold text-red-700">Delete Customer</h3>
+            <p className="text-sm text-[color:var(--muted-foreground)]">This hides the customer from active lists while keeping historical invoices and ledger records intact.</p>
+            <SubmitButton className="btn" pendingText="Deleting...">Delete Customer</SubmitButton>
           </form>
           <div className="card p-5">
             <h3 className="text-xl font-bold">Sub-balances</h3>

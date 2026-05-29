@@ -142,6 +142,13 @@ export async function removeCustomerSubaccount(formData: FormData) {
   revalidatePath(`/customers/${customerId}`);
 }
 
+export async function deleteCustomer(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase.from("customers").update({ is_active: false }).eq("id", text(formData, "customer_id"));
+  revalidatePath("/customers");
+  redirect("/customers");
+}
+
 export async function createItem(formData: FormData) {
   const supabase = await requireSupabase();
   const categoryName = text(formData, "category");
@@ -174,6 +181,29 @@ export async function createItem(formData: FormData) {
       { onConflict: "supplier_id,item_id" }
     );
   }
+  revalidatePath("/inventory");
+}
+
+export async function updateItem(formData: FormData) {
+  const supabase = await requireSupabase();
+  const itemId = text(formData, "item_id");
+  await supabase
+    .from("items")
+    .update({
+      name: text(formData, "name"),
+      sku: text(formData, "sku") || null,
+      primary_supplier_id: text(formData, "supplier_id") || null,
+      default_price: asNumber(formData.get("default_price")),
+      unit_cost: asNumber(formData.get("unit_cost")),
+      reorder_level: asNumber(formData.get("reorder_level"))
+    })
+    .eq("id", itemId);
+  revalidatePath("/inventory");
+}
+
+export async function deleteItem(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));
   revalidatePath("/inventory");
 }
 
@@ -350,6 +380,12 @@ export async function updateChequeStatus(formData: FormData) {
   revalidatePath("/cheques");
 }
 
+export async function deleteCheque(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase.from("cheques").delete().eq("id", text(formData, "cheque_id"));
+  revalidatePath("/cheques");
+}
+
 export async function recordDamage(formData: FormData) {
   const supabase = await requireSupabase();
   const itemId = text(formData, "item_id");
@@ -484,6 +520,26 @@ export async function createSupplier(formData: FormData) {
   revalidatePath("/suppliers");
 }
 
+export async function updateSupplier(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase
+    .from("suppliers")
+    .update({
+      name: text(formData, "name"),
+      contact_name: text(formData, "contact_name") || null,
+      phone: text(formData, "phone") || null,
+      address: text(formData, "address") || null
+    })
+    .eq("id", text(formData, "supplier_id"));
+  revalidatePath("/suppliers");
+}
+
+export async function deleteSupplier(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase.from("suppliers").update({ is_active: false }).eq("id", text(formData, "supplier_id"));
+  revalidatePath("/suppliers");
+}
+
 export async function recordSupplierPayment(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("supplier_payments").insert({
@@ -526,6 +582,28 @@ export async function recordExpense(formData: FormData) {
     amount: asNumber(formData.get("amount")),
     expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
   });
+  revalidatePath("/expenses");
+  revalidatePath("/reports/daily");
+}
+
+export async function updateExpense(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase
+    .from("expenses")
+    .update({
+      description: text(formData, "description"),
+      category: text(formData, "category") || "general",
+      amount: asNumber(formData.get("amount")),
+      expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
+    })
+    .eq("id", text(formData, "expense_id"));
+  revalidatePath("/expenses");
+  revalidatePath("/reports/daily");
+}
+
+export async function deleteExpense(formData: FormData) {
+  const supabase = await requireSupabase();
+  await supabase.from("expenses").delete().eq("id", text(formData, "expense_id"));
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
 }

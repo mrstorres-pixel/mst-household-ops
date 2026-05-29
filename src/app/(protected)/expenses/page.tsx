@@ -1,4 +1,4 @@
-import { recordExpense } from "@/app/actions";
+import { deleteExpense, recordExpense, updateExpense } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { listExpenses } from "@/lib/data";
@@ -21,10 +21,10 @@ export default async function ExpensesPage() {
         </form>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr></thead>
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Edit / Delete</th></tr></thead>
             <tbody>
-              {expenses.map((expense) => <tr key={expense.id}><td>{expense.expense_date}</td><td>{expense.description}</td><td>{expense.category}</td><td>{money(expense.amount)}</td></tr>)}
-              {!expenses.length ? <tr><td colSpan={4}>No expenses yet.</td></tr> : null}
+              {expenses.map((expense) => <tr key={expense.id}><td>{expense.expense_date}</td><td>{expense.description}</td><td>{expense.category}</td><td>{money(expense.amount)}</td><td><details><summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit</summary><form action={updateExpense} className="mt-3 grid min-w-72 gap-2"><input type="hidden" name="expense_id" value={expense.id} /><input className="input" name="description" defaultValue={expense.description} /><input className="input" name="category" defaultValue={expense.category} /><input className="input" name="amount" type="number" step="0.01" defaultValue={expense.amount} /><input className="input" name="expense_date" type="date" defaultValue={expense.expense_date} /><SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton></form><form action={deleteExpense} className="mt-2"><input type="hidden" name="expense_id" value={expense.id} /><SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton></form></details></td></tr>)}
+              {!expenses.length ? <tr><td colSpan={5}>No expenses yet.</td></tr> : null}
             </tbody>
           </table>
         </div>

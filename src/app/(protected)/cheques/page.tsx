@@ -1,5 +1,6 @@
-import { updateChequeStatus } from "@/app/actions";
+import { deleteCheque, updateChequeStatus } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { listCheques } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -30,7 +31,11 @@ export default async function ChequesPage() {
                       <option value="bounced">Bounced</option>
                       <option value="cancelled">Cancelled</option>
                     </select>
-                    <button className="btn btn-secondary" type="submit">Save</button>
+                    <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
+                  </form>
+                  <form action={deleteCheque} className="mt-2">
+                    <input type="hidden" name="cheque_id" value={cheque.id} />
+                    <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
                   </form>
                 </td>
               </tr>

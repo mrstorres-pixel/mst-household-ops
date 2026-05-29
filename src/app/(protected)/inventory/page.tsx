@@ -1,4 +1,4 @@
-import { createItem } from "@/app/actions";
+import { createItem, deleteItem, updateItem } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { listItems, listSuppliers } from "@/lib/data";
@@ -35,7 +35,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         </form>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th></tr></thead>
+            <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th><th>Edit / Delete</th></tr></thead>
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
@@ -46,6 +46,28 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                   <td>{money(item.default_price)}</td>
                   <td>{money(item.unit_cost)}</td>
                   <td>{money(Number(item.current_quantity) * Number(item.unit_cost))}</td>
+                  <td>
+                    <details>
+                      <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit</summary>
+                      <form action={updateItem} className="mt-3 grid min-w-72 gap-2">
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <input className="input" name="name" defaultValue={item.name} />
+                        <input className="input" name="sku" defaultValue={item.sku ?? ""} />
+                        <select className="input" name="supplier_id" defaultValue={item.primary_supplier_id ?? ""}>
+                          <option value="">No supplier</option>
+                          {suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}
+                        </select>
+                        <input className="input" name="default_price" type="number" step="0.01" defaultValue={item.default_price} />
+                        <input className="input" name="unit_cost" type="number" step="0.01" defaultValue={item.unit_cost} />
+                        <input className="input" name="reorder_level" type="number" step="0.01" defaultValue={item.reorder_level} />
+                        <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
+                      </form>
+                      <form action={deleteItem} className="mt-2">
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
+                      </form>
+                    </details>
+                  </td>
                 </tr>
               ))}
             </tbody>
