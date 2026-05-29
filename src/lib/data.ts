@@ -92,6 +92,20 @@ export async function listItems(search?: string) {
   return data ?? [];
 }
 
+export async function listArchivedItems(search?: string) {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  let query = supabase
+    .from("items")
+    .select("*, categories(name), suppliers(name)")
+    .eq("is_active", false)
+    .order("name");
+  if (search) query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+  const { data } = await query;
+  return data ?? [];
+}
+
 export async function listCategories() {
   noStore();
   if (!hasSupabaseEnv()) return [];

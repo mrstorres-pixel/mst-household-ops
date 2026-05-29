@@ -198,6 +198,21 @@ export async function createItem(formData: FormData) {
     categoryId = data?.id ?? null;
   }
   const sku = text(formData, "sku") || null;
+  if (sku) {
+    const { data: existingSku } = await supabase
+      .from("items")
+      .select("id, name, sku, is_active")
+      .eq("sku", sku)
+      .maybeSingle();
+    if (existingSku) {
+      const state = existingSku.is_active ? "active" : "archived/deleted";
+      redirect(
+        `/inventory?error=${encodeURIComponent(
+          `SKU "${sku}" is already used by ${state} item "${existingSku.name}". ${existingSku.is_active ? "Edit that item instead." : "Restore it from Archived Items below, or use a different SKU."}`
+        )}`
+      );
+    }
+  }
   const { data: item, error } = await supabase.from("items").insert({
     sku: text(formData, "sku") || null,
     name: text(formData, "name"),
@@ -257,6 +272,16 @@ export async function deleteItem(formData: FormData) {
   await writeAudit(supabase, "delete", "item", text(formData, "item_id"), "Deleted item");
   revalidatePath("/inventory");
   redirect(`/inventory?success=${encodeURIComponent("Item deleted.")}`);
+}
+
+export async function restoreItem(formData: FormData) {
+  const supabase = await requireSupabase();
+  const itemId = text(formData, "item_id");
+  const { error } = await supabase.from("items").update({ is_active: true }).eq("id", itemId);
+  if (error) redirect(`/inventory?error=${encodeURIComponent(`Item could not be restored: ${errorMessage(error)}`)}`);
+  await writeAudit(supabase, "restore", "item", itemId, "Restored archived item");
+  revalidatePath("/inventory");
+  redirect(`/inventory?success=${encodeURIComponent("Item restored.")}`);
 }
 
 export async function saveCustomerTemplate(formData: FormData) {

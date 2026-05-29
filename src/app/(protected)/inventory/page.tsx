@@ -1,12 +1,12 @@
-import { createItem, deleteItem, updateItem } from "@/app/actions";
+import { createItem, deleteItem, restoreItem, updateItem } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { listItems, listSuppliers } from "@/lib/data";
+import { listArchivedItems, listItems, listSuppliers } from "@/lib/data";
 import { money } from "@/lib/format";
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ q?: string; error?: string; success?: string }> }) {
   const params = await searchParams;
-  const [items, suppliers] = await Promise.all([listItems(params.q), listSuppliers()]);
+  const [items, archivedItems, suppliers] = await Promise.all([listItems(params.q), listArchivedItems(params.q), listSuppliers()]);
   const totalValue = items.reduce((total, item) => total + Number(item.current_quantity ?? 0) * Number(item.unit_cost ?? 0), 0);
 
   return (
@@ -87,6 +87,29 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           </table>
         </div>
       </section>
+      {archivedItems.length ? (
+        <section className="mt-5 card table-wrap">
+          <table>
+            <thead><tr><th>Archived Item</th><th>Supplier</th><th>SKU</th><th>Qty</th><th>Restore</th></tr></thead>
+            <tbody>
+              {archivedItems.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.name}</td>
+                  <td>{item.suppliers?.name ?? "-"}</td>
+                  <td>{item.sku ?? "-"}</td>
+                  <td>{item.current_quantity}</td>
+                  <td>
+                    <form action={restoreItem}>
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <SubmitButton className="btn btn-secondary" pendingText="Restoring...">Restore</SubmitButton>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
     </>
   );
 }
