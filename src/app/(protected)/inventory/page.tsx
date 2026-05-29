@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { listItems, listSuppliers } from "@/lib/data";
 import { money } from "@/lib/format";
 
-export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ q?: string; error?: string; success?: string }> }) {
   const params = await searchParams;
   const [items, suppliers] = await Promise.all([listItems(params.q), listSuppliers()]);
   const totalValue = items.reduce((total, item) => total + Number(item.current_quantity ?? 0) * Number(item.unit_cost ?? 0), 0);
@@ -12,9 +12,22 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader title="Inventory" description={`Current stock value: ${money(totalValue)}`} />
+      {params.error ? (
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+          {params.error}
+        </div>
+      ) : null}
+      {params.success ? (
+        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800">
+          {params.success}
+        </div>
+      ) : null}
       <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
         <form action={createItem} className="card grid gap-4 p-5">
           <h3 className="text-xl font-bold">Add Item</h3>
+          <p className="text-sm text-[color:var(--muted-foreground)]">
+            If a save fails, the exact database message will appear above. Common causes are duplicate SKU, missing migration, or a supplier/category permission issue.
+          </p>
           <div className="field"><label>Name</label><input className="input" name="name" required /></div>
           <div className="field"><label>SKU</label><input className="input" name="sku" /></div>
           <div className="field">

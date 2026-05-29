@@ -11,6 +11,12 @@ function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
+function errorMessage(error: { message?: string; code?: string; details?: string } | null) {
+  if (!error) return "Unknown database error.";
+  const parts = [error.message, error.details, error.code ? `Code: ${error.code}` : ""].filter(Boolean);
+  return parts.join(" ");
+}
+
 async function requireSupabase() {
   if (!hasSupabaseEnv()) throw new Error("Supabase is not configured.");
   return createClient();
@@ -183,14 +189,16 @@ export async function createItem(formData: FormData) {
   const categoryName = text(formData, "category");
   let categoryId: string | null = null;
   if (categoryName) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("categories")
       .upsert({ name: categoryName }, { onConflict: "name" })
       .select("id")
       .single();
+    if (error) redirect(`/inventory?error=${encodeURIComponent(`Category could not be saved: ${errorMessage(error)}`)}`);
     categoryId = data?.id ?? null;
   }
-  const { data: item } = await supabase.from("items").insert({
+  const sku = text(formData, "sku") || null;
+  const { data: item, error } = await supabase.from("items").insert({
     sku: text(formData, "sku") || null,
     name: text(formData, "name"),
     category_id: categoryId,
@@ -200,8 +208,12 @@ export async function createItem(formData: FormData) {
     current_quantity: asNumber(formData.get("current_quantity")),
     reorder_level: asNumber(formData.get("reorder_level"))
   }).select("id").single();
+  if (error) {
+    const duplicateHint = error.code === "23505" && sku ? ` The SKU "${sku}" may already exist.` : "";
+    redirect(`/inventory?error=${encodeURIComponent(`Item could not be saved: ${errorMessage(error)}${duplicateHint}`)}`);
+  }
   if (item?.id && text(formData, "supplier_id")) {
-    await supabase.from("supplier_items").upsert(
+    const { error: supplierItemError } = await supabase.from("supplier_items").upsert(
       {
         supplier_id: text(formData, "supplier_id"),
         item_id: item.id,
@@ -209,15 +221,19 @@ export async function createItem(formData: FormData) {
       },
       { onConflict: "supplier_id,item_id" }
     );
+    if (supplierItemError) {
+      redirect(`/inventory?error=${encodeURIComponent(`Item was created, but supplier link failed: ${errorMessage(supplierItemError)}`)}`);
+    }
   }
   await writeAudit(supabase, "create", "item", item?.id ?? null, `Created item ${text(formData, "name")}`);
   revalidatePath("/inventory");
+  redirect(`/inventory?success=${encodeURIComponent(`Saved item: ${text(formData, "name")}`)}`);
 }
 
 export async function updateItem(formData: FormData) {
   const supabase = await requireSupabase();
   const itemId = text(formData, "item_id");
-  await supabase
+  const { error } = await supabase
     .from("items")
     .update({
       name: text(formData, "name"),
@@ -228,15 +244,19 @@ export async function updateItem(formData: FormData) {
       reorder_level: asNumber(formData.get("reorder_level"))
     })
     .eq("id", itemId);
+  if (error) redirect(`/inventory?error=${encodeURIComponent(`Item could not be updated: ${errorMessage(error)}`)}`);
   await writeAudit(supabase, "update", "item", itemId, `Updated item ${text(formData, "name")}`);
   revalidatePath("/inventory");
+  redirect(`/inventory?success=${encodeURIComponent(`Updated item: ${text(formData, "name")}`)}`);
 }
 
 export async function deleteItem(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));
+  const { error } = await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));
+  if (error) redirect(`/inventory?error=${encodeURIComponent(`Item could not be deleted: ${errorMessage(error)}`)}`);
   await writeAudit(supabase, "delete", "item", text(formData, "item_id"), "Deleted item");
   revalidatePath("/inventory");
+  redirect(`/inventory?success=${encodeURIComponent("Item deleted.")}`);
 }
 
 export async function saveCustomerTemplate(formData: FormData) {
