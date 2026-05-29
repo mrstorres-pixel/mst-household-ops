@@ -6,6 +6,7 @@ import { z } from "zod";
 import { asNumber } from "@/lib/format";
 import { hasSupabaseEnv } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeSku } from "@/lib/sku";
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -197,7 +198,7 @@ export async function createItem(formData: FormData) {
     if (error) redirect(`/inventory?error=${encodeURIComponent(`Category could not be saved: ${errorMessage(error)}`)}`);
     categoryId = data?.id ?? null;
   }
-  const sku = text(formData, "sku") || null;
+  const sku = normalizeSku(text(formData, "sku"));
   if (sku) {
     const { data: existingSku } = await supabase
       .from("items")
@@ -214,7 +215,7 @@ export async function createItem(formData: FormData) {
     }
   }
   const { data: item, error } = await supabase.from("items").insert({
-    sku: text(formData, "sku") || null,
+    sku,
     name: text(formData, "name"),
     category_id: categoryId,
     primary_supplier_id: text(formData, "supplier_id") || null,
@@ -248,11 +249,24 @@ export async function createItem(formData: FormData) {
 export async function updateItem(formData: FormData) {
   const supabase = await requireSupabase();
   const itemId = text(formData, "item_id");
+  const sku = normalizeSku(text(formData, "sku"));
+  if (sku) {
+    const { data: existingSku } = await supabase
+      .from("items")
+      .select("id, name, sku, is_active")
+      .eq("sku", sku)
+      .neq("id", itemId)
+      .maybeSingle();
+    if (existingSku) {
+      const state = existingSku.is_active ? "active" : "archived/deleted";
+      redirect(`/inventory?error=${encodeURIComponent(`SKU "${sku}" is already used by ${state} item "${existingSku.name}".`)}`);
+    }
+  }
   const { error } = await supabase
     .from("items")
     .update({
       name: text(formData, "name"),
-      sku: text(formData, "sku") || null,
+      sku,
       primary_supplier_id: text(formData, "supplier_id") || null,
       default_price: asNumber(formData.get("default_price")),
       unit_cost: asNumber(formData.get("unit_cost")),
@@ -269,9 +283,9 @@ export async function deleteItem(formData: FormData) {
   const supabase = await requireSupabase();
   const { error } = await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));
   if (error) redirect(`/inventory?error=${encodeURIComponent(`Item could not be deleted: ${errorMessage(error)}`)}`);
-  await writeAudit(supabase, "delete", "item", text(formData, "item_id"), "Deleted item");
+  await writeAudit(supabase, "archive", "item", text(formData, "item_id"), "Archived item");
   revalidatePath("/inventory");
-  redirect(`/inventory?success=${encodeURIComponent("Item deleted.")}`);
+  redirect(`/inventory?success=${encodeURIComponent("Item archived.")}`);
 }
 
 export async function restoreItem(formData: FormData) {

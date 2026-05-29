@@ -1,4 +1,5 @@
-import { createItem, deleteItem, restoreItem, updateItem } from "@/app/actions";
+import { deleteItem, restoreItem, updateItem } from "@/app/actions";
+import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { listArchivedItems, listItems, listSuppliers } from "@/lib/data";
@@ -23,32 +24,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
       <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
-        <form action={createItem} className="card grid gap-4 p-5">
-          <h3 className="text-xl font-bold">Add Item</h3>
-          <p className="text-sm text-[color:var(--muted-foreground)]">
-            If a save fails, the exact database message will appear above. Common causes are duplicate SKU, missing migration, or a supplier/category permission issue.
-          </p>
-          <div className="field"><label>Name</label><input className="input" name="name" required /></div>
-          <div className="field"><label>SKU</label><input className="input" name="sku" /></div>
-          <div className="field">
-            <label>Supplier</label>
-            <select className="input" name="supplier_id">
-              <option value="">No supplier</option>
-              {suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}
-            </select>
-          </div>
-          <div className="field"><label>Category</label><input className="input" name="category" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="field"><label>Default Price</label><input className="input" name="default_price" type="number" step="0.01" /></div>
-            <div className="field"><label>Unit Cost</label><input className="input" name="unit_cost" type="number" step="0.01" /></div>
-            <div className="field"><label>Quantity</label><input className="input" name="current_quantity" type="number" step="0.01" /></div>
-            <div className="field"><label>Reorder</label><input className="input" name="reorder_level" type="number" step="0.01" /></div>
-          </div>
-          <SubmitButton pendingText="Saving item...">Save Item</SubmitButton>
-        </form>
+        <InventoryItemForm suppliers={suppliers} />
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th><th>Edit / Delete</th></tr></thead>
+            <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th><th>Edit / Archive</th></tr></thead>
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
@@ -77,7 +56,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       </form>
                       <form action={deleteItem} className="mt-2">
                         <input type="hidden" name="item_id" value={item.id} />
-                        <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
+                        <SubmitButton className="btn" pendingText="Archiving...">Archive Item</SubmitButton>
                       </form>
                     </details>
                   </td>
