@@ -250,6 +250,17 @@ export async function updateItem(formData: FormData) {
   const supabase = await requireSupabase();
   const itemId = text(formData, "item_id");
   const sku = normalizeSku(text(formData, "sku"));
+  const categoryName = text(formData, "category");
+  let categoryId: string | null = null;
+  if (categoryName) {
+    const { data, error } = await supabase
+      .from("categories")
+      .upsert({ name: categoryName }, { onConflict: "name" })
+      .select("id")
+      .single();
+    if (error) redirect(`/inventory?error=${encodeURIComponent(`Category could not be saved: ${errorMessage(error)}`)}`);
+    categoryId = data?.id ?? null;
+  }
   if (sku) {
     const { data: existingSku } = await supabase
       .from("items")
@@ -268,6 +279,7 @@ export async function updateItem(formData: FormData) {
       name: text(formData, "name"),
       sku,
       primary_supplier_id: text(formData, "supplier_id") || null,
+      category_id: categoryId,
       default_price: asNumber(formData.get("default_price")),
       unit_cost: asNumber(formData.get("unit_cost")),
       reorder_level: asNumber(formData.get("reorder_level"))
@@ -286,6 +298,22 @@ export async function deleteItem(formData: FormData) {
   await writeAudit(supabase, "archive", "item", text(formData, "item_id"), "Archived item");
   revalidatePath("/inventory");
   redirect(`/inventory?success=${encodeURIComponent("Item archived.")}`);
+}
+
+export async function permanentlyDeleteItem(formData: FormData) {
+  const supabase = await requireSupabase();
+  const itemId = text(formData, "item_id");
+  const { error } = await supabase.from("items").delete().eq("id", itemId);
+  if (error) {
+    redirect(
+      `/inventory?error=${encodeURIComponent(
+        `Item could not be permanently deleted: ${errorMessage(error)} If this item has invoices, stock movements, damages, supplier invoices, or other history, archive it instead.`
+      )}`
+    );
+  }
+  await writeAudit(supabase, "delete_permanent", "item", itemId, "Permanently deleted item");
+  revalidatePath("/inventory");
+  redirect(`/inventory?success=${encodeURIComponent("Item permanently deleted.")}`);
 }
 
 export async function restoreItem(formData: FormData) {

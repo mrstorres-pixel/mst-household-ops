@@ -1,4 +1,4 @@
-import { deleteItem, restoreItem, updateItem } from "@/app/actions";
+import { deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -49,6 +49,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                           <option value="">No supplier</option>
                           {suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}
                         </select>
+                        <input className="input" name="category" defaultValue={item.categories?.name ?? ""} placeholder="Category" />
                         <input className="input" name="default_price" type="number" step="0.01" defaultValue={item.default_price} />
                         <input className="input" name="unit_cost" type="number" step="0.01" defaultValue={item.unit_cost} />
                         <input className="input" name="reorder_level" type="number" step="0.01" defaultValue={item.reorder_level} />
@@ -57,6 +58,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       <form action={deleteItem} className="mt-2">
                         <input type="hidden" name="item_id" value={item.id} />
                         <SubmitButton className="btn" pendingText="Archiving...">Archive Item</SubmitButton>
+                      </form>
+                      <form action={permanentlyDeleteItem} className="mt-2">
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <SubmitButton className="btn btn-secondary" pendingText="Deleting...">Permanent Delete</SubmitButton>
                       </form>
                     </details>
                   </td>
@@ -69,7 +74,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       {archivedItems.length ? (
         <section className="mt-5 card table-wrap">
           <table>
-            <thead><tr><th>Archived Item</th><th>Supplier</th><th>SKU</th><th>Qty</th><th>Restore</th></tr></thead>
+            <thead><tr><th>Archived Item</th><th>Supplier</th><th>SKU</th><th>Qty</th><th>Actions</th></tr></thead>
             <tbody>
               {archivedItems.map((item) => (
                 <tr key={item.id}>
@@ -78,9 +83,13 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                   <td>{item.sku ?? "-"}</td>
                   <td>{item.current_quantity}</td>
                   <td>
-                    <form action={restoreItem}>
+                    <form action={restoreItem} className="mb-2">
                       <input type="hidden" name="item_id" value={item.id} />
                       <SubmitButton className="btn btn-secondary" pendingText="Restoring...">Restore</SubmitButton>
+                    </form>
+                    <form action={permanentlyDeleteItem}>
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <SubmitButton className="btn" pendingText="Deleting...">Permanent Delete</SubmitButton>
                     </form>
                   </td>
                 </tr>
