@@ -1,15 +1,18 @@
 import { deleteCheque, updateChequeStatus } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listCheques } from "@/lib/data";
 import { money } from "@/lib/format";
 
-export default async function ChequesPage() {
+export default async function ChequesPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const cheques = await listCheques();
 
   return (
     <>
       <PageHeader title="Cheques" description="Cheques remain received until the user marks them redeemed after bank confirmation." />
+      <PageNotice error={params.error} success={params.success} />
       <div className="card table-wrap">
         <table>
           <thead><tr><th>Received</th><th>Customer</th><th>Cheque</th><th>Bank</th><th>Amount</th><th>Status</th><th>Update</th></tr></thead>

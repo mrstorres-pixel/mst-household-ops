@@ -1,5 +1,6 @@
 import { recordPayment } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listOpenInvoices, listPayments } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
@@ -10,13 +11,15 @@ type CustomerOption = {
   customer_subaccounts?: Array<{ id: string; name: string }>;
 };
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const [customerRows, payments, openInvoices] = await Promise.all([listCustomerRows(), listPayments(), listOpenInvoices()]);
   const customers = customerRows as CustomerOption[];
 
   return (
     <>
       <PageHeader title="Payments" description="Record cash, bank, and cheque payments against customer balances." />
+      <PageNotice error={params.error} success={params.success} />
       <section className="grid gap-5 lg:grid-cols-[380px_1fr]">
         <form action={recordPayment} className="card grid gap-4 p-5">
           <h3 className="text-xl font-bold">Record Payment</h3>

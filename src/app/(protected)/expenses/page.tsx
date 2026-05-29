@@ -1,15 +1,18 @@
 import { deleteExpense, recordExpense, updateExpense } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listExpenses } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const expenses = await listExpenses();
 
   return (
     <>
       <PageHeader title="Expenses" description="Expenses subtract from physical in-store cash flow." />
+      <PageNotice error={params.error} success={params.success} />
       <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
         <form action={recordExpense} className="card grid gap-4 p-5">
           <h3 className="text-xl font-bold">Record Expense</h3>

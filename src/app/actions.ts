@@ -18,6 +18,14 @@ function errorMessage(error: { message?: string; code?: string; details?: string
   return parts.join(" ");
 }
 
+function pageError(path: string, message: string): never {
+  redirect(`${path}?error=${encodeURIComponent(message)}`);
+}
+
+function pageSuccess(path: string, message: string): never {
+  redirect(`${path}?success=${encodeURIComponent(message)}`);
+}
+
 async function requireSupabase() {
   if (!hasSupabaseEnv()) throw new Error("Supabase is not configured.");
   return createClient();
@@ -345,6 +353,8 @@ export async function createInvoice(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");
   const subaccountId = text(formData, "subaccount_id") || null;
+  if (!customerId) pageError("/invoices/new", "Select a customer before posting an invoice.");
+
   const itemIds = formData.getAll("item_id").map(String);
   const descriptions = formData.getAll("description").map(String);
   const quantities = formData.getAll("quantity").map(asNumber);
@@ -359,8 +369,12 @@ export async function createInvoice(formData: FormData) {
     }))
     .filter((line) => line.item_id && line.quantity > 0);
 
-  if (!lines.length) throw new Error("Add at least one invoice item.");
+  if (!lines.length) pageError("/invoices/new", "Add at least one invoice item with quantity greater than zero.");
+  if (lines.some((line) => line.unit_price < 0)) pageError("/invoices/new", "Unit price cannot be negative.");
+
   const subtotal = lines.reduce((total, line) => total + line.line_total, 0);
+  if (subtotal <= 0) pageError("/invoices/new", "Invoice total must be greater than zero.");
+
   const invoiceNumber = `MST-${Date.now()}`;
   const { data: invoice, error } = await supabase
     .from("invoices")
@@ -375,16 +389,24 @@ export async function createInvoice(formData: FormData) {
     })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) pageError("/invoices/new", `Invoice could not be saved: ${errorMessage(error)}`);
   await writeAudit(supabase, "create", "invoice", invoice.id, `Created customer invoice ${invoiceNumber}`, { total: subtotal });
 
-  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "customer_invoice", invoice.id);
+  let attachmentId: string | null = null;
+  try {
+    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "customer_invoice", invoice.id);
+  } catch (error) {
+    pageError("/invoices/new", `Invoice was created, but the attachment could not be uploaded: ${errorMessage(error as { message?: string; code?: string; details?: string })}`);
+  }
   if (attachmentId) {
-    await supabase.from("invoices").update({ attachment_file_id: attachmentId }).eq("id", invoice.id);
+    const { error: attachmentError } = await supabase.from("invoices").update({ attachment_file_id: attachmentId }).eq("id", invoice.id);
+    if (attachmentError) pageError("/invoices/new", `Invoice was created, but the attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
 
-  await supabase.from("invoice_items").insert(lines.map((line) => ({ ...line, invoice_id: invoice.id })));
-  await supabase.from("customer_ledger_entries").insert({
+  const { error: itemError } = await supabase.from("invoice_items").insert(lines.map((line) => ({ ...line, invoice_id: invoice.id })));
+  if (itemError) pageError("/invoices/new", `Invoice line items could not be saved: ${errorMessage(itemError)}`);
+
+  const { error: ledgerError } = await supabase.from("customer_ledger_entries").insert({
     customer_id: customerId,
     subaccount_id: subaccountId,
     invoice_id: invoice.id,
@@ -393,7 +415,9 @@ export async function createInvoice(formData: FormData) {
     debit: subtotal,
     credit: 0
   });
-  await supabase.from("inventory_movements").insert(
+  if (ledgerError) pageError("/invoices/new", `Customer balance entry could not be saved: ${errorMessage(ledgerError)}`);
+
+  const { error: movementError } = await supabase.from("inventory_movements").insert(
     lines.map((line) => ({
       item_id: line.item_id,
       movement_type: "sale",
@@ -403,8 +427,10 @@ export async function createInvoice(formData: FormData) {
       notes: invoiceNumber
     }))
   );
+  if (movementError) pageError("/invoices/new", `Inventory deduction could not be saved: ${errorMessage(movementError)}`);
+
   if (text(formData, "cash_sale") === "on") {
-    const { data: payment } = await supabase
+    const { data: payment, error: paymentError } = await supabase
       .from("payments")
       .insert({
         customer_id: customerId,
@@ -417,7 +443,9 @@ export async function createInvoice(formData: FormData) {
       })
       .select("id")
       .single();
-    await supabase.from("customer_ledger_entries").insert({
+    if (paymentError) pageError("/invoices/new", `Cash sale payment could not be saved: ${errorMessage(paymentError)}`);
+
+    const { error: cashLedgerError } = await supabase.from("customer_ledger_entries").insert({
       customer_id: customerId,
       subaccount_id: subaccountId,
       invoice_id: invoice.id,
@@ -427,7 +455,10 @@ export async function createInvoice(formData: FormData) {
       debit: 0,
       credit: subtotal
     });
-    await supabase.from("cash_sales").insert({ invoice_id: invoice.id, amount: subtotal });
+    if (cashLedgerError) pageError("/invoices/new", `Cash sale ledger entry could not be saved: ${errorMessage(cashLedgerError)}`);
+
+    const { error: cashSaleError } = await supabase.from("cash_sales").insert({ invoice_id: invoice.id, amount: subtotal });
+    if (cashSaleError) pageError("/invoices/new", `Cash sale report entry could not be saved: ${errorMessage(cashSaleError)}`);
   }
   revalidatePath("/dashboard");
   redirect(`/invoices/${invoice.id}/print`);
@@ -441,6 +472,25 @@ export async function recordPayment(formData: FormData) {
   const amount = asNumber(formData.get("amount"));
   const invoiceId = text(formData, "invoice_id") || null;
   const allocationAmount = asNumber(formData.get("allocation_amount")) || amount;
+  if (!customerId) pageError("/payments", "Select a customer before recording a payment.");
+  if (!["cash", "bank", "cheque"].includes(method)) pageError("/payments", "Select a valid payment method.");
+  if (amount <= 0) pageError("/payments", "Payment amount must be greater than zero.");
+  if (allocationAmount <= 0) pageError("/payments", "Allocated amount must be greater than zero.");
+  if (allocationAmount > amount) pageError("/payments", "Allocated amount cannot be higher than the payment amount.");
+
+  if (invoiceId) {
+    const { data: invoiceStatus, error: invoiceError } = await supabase
+      .from("invoice_payment_status")
+      .select("invoice_id, customer_id, remaining_balance")
+      .eq("invoice_id", invoiceId)
+      .single();
+    if (invoiceError || !invoiceStatus) pageError("/payments", `Selected invoice could not be checked: ${errorMessage(invoiceError)}`);
+    if (invoiceStatus.customer_id !== customerId) pageError("/payments", "Selected invoice does not belong to the selected customer.");
+    if (allocationAmount > Number(invoiceStatus.remaining_balance ?? 0)) {
+      pageError("/payments", `Allocated amount is higher than the invoice remaining balance of ${invoiceStatus.remaining_balance}.`);
+    }
+  }
+
   const { data: payment, error } = await supabase
     .from("payments")
     .insert({
@@ -454,23 +504,30 @@ export async function recordPayment(formData: FormData) {
     })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) pageError("/payments", `Payment could not be saved: ${errorMessage(error)}`);
 
-  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "payment", payment.id);
+  let attachmentId: string | null = null;
+  try {
+    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "payment", payment.id);
+  } catch (error) {
+    pageError("/payments", `Payment was created, but the attachment could not be uploaded: ${errorMessage(error as { message?: string; code?: string; details?: string })}`);
+  }
   if (attachmentId) {
-    await supabase.from("payments").update({ attachment_file_id: attachmentId }).eq("id", payment.id);
+    const { error: attachmentError } = await supabase.from("payments").update({ attachment_file_id: attachmentId }).eq("id", payment.id);
+    if (attachmentError) pageError("/payments", `Payment was created, but the attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
 
   if (invoiceId) {
-    await supabase.from("payment_allocations").insert({
+    const { error: allocationError } = await supabase.from("payment_allocations").insert({
       payment_id: payment.id,
       invoice_id: invoiceId,
       subaccount_id: subaccountId,
       amount: allocationAmount
     });
+    if (allocationError) pageError("/payments", `Payment allocation could not be saved: ${errorMessage(allocationError)}`);
   }
 
-  await supabase.from("customer_ledger_entries").insert({
+  const { error: ledgerError } = await supabase.from("customer_ledger_entries").insert({
     customer_id: customerId,
     subaccount_id: subaccountId,
     payment_id: payment.id,
@@ -479,9 +536,10 @@ export async function recordPayment(formData: FormData) {
     debit: 0,
     credit: amount
   });
+  if (ledgerError) pageError("/payments", `Customer balance entry could not be saved: ${errorMessage(ledgerError)}`);
 
   if (method === "cheque") {
-    const { data: cheque } = await supabase.from("cheques").insert({
+    const { data: cheque, error: chequeError } = await supabase.from("cheques").insert({
       payment_id: payment.id,
       customer_id: customerId,
       cheque_number: text(formData, "reference") || null,
@@ -490,34 +548,48 @@ export async function recordPayment(formData: FormData) {
       received_date: text(formData, "payment_date") || new Date().toISOString().slice(0, 10),
       attachment_file_id: attachmentId
     }).select("id").single();
+    if (chequeError) pageError("/payments", `Cheque record could not be saved: ${errorMessage(chequeError)}`);
     if (attachmentId && cheque?.id) {
-      await supabase.from("app_files").update({ owner_type: "cheque", owner_id: cheque.id }).eq("id", attachmentId);
+      const { error: fileError } = await supabase.from("app_files").update({ owner_type: "cheque", owner_id: cheque.id }).eq("id", attachmentId);
+      if (fileError) pageError("/payments", `Cheque attachment link could not be updated: ${errorMessage(fileError)}`);
     }
   }
   await writeAudit(supabase, "create", "payment", payment.id, `Recorded ${method} payment`, { amount, invoice_id: invoiceId });
 
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
+  pageSuccess("/payments", "Payment saved.");
 }
 
 export async function updateChequeStatus(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase
+  const chequeId = text(formData, "cheque_id");
+  const status = text(formData, "status");
+  if (!chequeId) pageError("/cheques", "Select a cheque before changing status.");
+  if (!["received", "redeemed", "bounced", "cancelled"].includes(status)) pageError("/cheques", "Select a valid cheque status.");
+
+  const { error } = await supabase
     .from("cheques")
     .update({
-      status: text(formData, "status"),
-      redeemed_date: text(formData, "status") === "redeemed" ? new Date().toISOString().slice(0, 10) : null
+      status,
+      redeemed_date: status === "redeemed" ? new Date().toISOString().slice(0, 10) : null
     })
-    .eq("id", text(formData, "cheque_id"));
-  await writeAudit(supabase, "status", "cheque", text(formData, "cheque_id"), `Updated cheque status to ${text(formData, "status")}`);
+    .eq("id", chequeId);
+  if (error) pageError("/cheques", `Cheque status could not be updated: ${errorMessage(error)}`);
+  await writeAudit(supabase, "status", "cheque", chequeId, `Updated cheque status to ${status}`);
   revalidatePath("/cheques");
+  pageSuccess("/cheques", "Cheque status updated.");
 }
 
 export async function deleteCheque(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("cheques").delete().eq("id", text(formData, "cheque_id"));
-  await writeAudit(supabase, "delete", "cheque", text(formData, "cheque_id"), "Deleted cheque");
+  const chequeId = text(formData, "cheque_id");
+  if (!chequeId) pageError("/cheques", "Select a cheque before deleting.");
+  const { error } = await supabase.from("cheques").delete().eq("id", chequeId);
+  if (error) pageError("/cheques", `Cheque could not be deleted: ${errorMessage(error)}`);
+  await writeAudit(supabase, "delete", "cheque", chequeId, "Deleted cheque");
   revalidatePath("/cheques");
+  pageSuccess("/cheques", "Cheque deleted.");
 }
 
 export async function recordDamage(formData: FormData) {
@@ -531,7 +603,11 @@ export async function recordDamage(formData: FormData) {
   const balanceCredit = asNumber(formData.get("balance_credit"));
   const repairCharge = asNumber(formData.get("repair_charge"));
   const missingParts = text(formData, "missing_parts");
-  const { data: damage } = await supabase
+  if (!itemId) pageError("/inventory/damages", "Select an item before recording damage or return.");
+  if (quantity <= 0) pageError("/inventory/damages", "Quantity must be greater than zero.");
+  if (estimatedCost < 0 || balanceCredit < 0 || repairCharge < 0) pageError("/inventory/damages", "Amounts cannot be negative.");
+
+  const { data: damage, error: damageError } = await supabase
     .from("damage_records")
     .insert({
       item_id: itemId,
@@ -548,8 +624,9 @@ export async function recordDamage(formData: FormData) {
     })
     .select("id")
     .single();
+  if (damageError) pageError("/inventory/damages", `Damage record could not be saved: ${errorMessage(damageError)}`);
   await writeAudit(supabase, "create", "damage_record", damage?.id ?? null, "Recorded damage/return", { quantity, balanceCredit, repairCharge });
-  await supabase.from("inventory_movements").insert({
+  const { error: movementError } = await supabase.from("inventory_movements").insert({
     item_id: itemId,
     movement_type: "damage",
     quantity_delta: -quantity,
@@ -558,8 +635,9 @@ export async function recordDamage(formData: FormData) {
     reference_id: damage?.id,
     notes: text(formData, "reason") || null
   });
+  if (movementError) pageError("/inventory/damages", `Inventory damage movement could not be saved: ${errorMessage(movementError)}`);
   if (customerId && balanceCredit > 0) {
-    await supabase.from("customer_ledger_entries").insert({
+    const { error: creditError } = await supabase.from("customer_ledger_entries").insert({
       customer_id: customerId,
       subaccount_id: subaccountId,
       entry_type: "damage_credit",
@@ -567,12 +645,13 @@ export async function recordDamage(formData: FormData) {
       debit: 0,
       credit: balanceCredit
     });
+    if (creditError) pageError("/inventory/damages", `Customer balance deduction could not be saved: ${errorMessage(creditError)}`);
   }
   if (customerId && repairCharge > 0) {
     const description = missingParts
       ? `Repair charge for missing/damaged ${missingParts}`
       : text(formData, "reason") || "Repair charge";
-    const { data: charge } = await supabase
+    const { data: charge, error: chargeError } = await supabase
       .from("charges")
       .insert({
         customer_id: customerId,
@@ -582,7 +661,9 @@ export async function recordDamage(formData: FormData) {
       })
       .select("id")
       .single();
-    await supabase.from("customer_ledger_entries").insert({
+    if (chargeError) pageError("/inventory/damages", `Repair charge could not be saved: ${errorMessage(chargeError)}`);
+
+    const { error: chargeLedgerError } = await supabase.from("customer_ledger_entries").insert({
       customer_id: customerId,
       subaccount_id: subaccountId,
       entry_type: "repair_charge",
@@ -591,12 +672,14 @@ export async function recordDamage(formData: FormData) {
       credit: 0,
       invoice_id: null
     });
+    if (chargeLedgerError) pageError("/inventory/damages", `Repair charge balance entry could not be saved: ${errorMessage(chargeLedgerError)}`);
     if (charge?.id) {
-      await supabase.from("app_files").update({ owner_type: "charge", owner_id: charge.id }).eq("owner_type", "pending_charge");
+      const { error: fileError } = await supabase.from("app_files").update({ owner_type: "charge", owner_id: charge.id }).eq("owner_type", "pending_charge");
+      if (fileError) pageError("/inventory/damages", `Repair charge attachment link could not be updated: ${errorMessage(fileError)}`);
     }
   }
   if (supplierId && balanceCredit > 0) {
-    await supabase.from("supplier_adjustments").insert({
+    const { error: supplierError } = await supabase.from("supplier_adjustments").insert({
       supplier_id: supplierId,
       item_id: itemId,
       adjustment_type: "damage",
@@ -604,9 +687,11 @@ export async function recordDamage(formData: FormData) {
       amount: balanceCredit,
       reason: text(formData, "reason") || null
     });
+    if (supplierError) pageError("/inventory/damages", `Supplier balance deduction could not be saved: ${errorMessage(supplierError)}`);
   }
   revalidatePath("/inventory");
   revalidatePath("/inventory/damages");
+  pageSuccess("/inventory/damages", "Damage or return saved.");
 }
 
 export async function recordSupplierPurchase(formData: FormData) {
@@ -616,7 +701,12 @@ export async function recordSupplierPurchase(formData: FormData) {
   const quantity = asNumber(formData.get("quantity"));
   const unitCost = asNumber(formData.get("unit_cost"));
   const total = quantity * unitCost;
-  const { data: purchase } = await supabase
+  if (!supplierId) pageError("/suppliers", "Select a supplier before posting a supplier invoice.");
+  if (!itemId) pageError("/suppliers", "Select an item before posting a supplier invoice.");
+  if (quantity <= 0) pageError("/suppliers", "Supplier invoice quantity must be greater than zero.");
+  if (unitCost < 0) pageError("/suppliers", "Supplier invoice unit cost cannot be negative.");
+
+  const { data: purchase, error: purchaseError } = await supabase
     .from("purchase_orders")
     .insert({
       supplier_id: supplierId,
@@ -628,12 +718,20 @@ export async function recordSupplierPurchase(formData: FormData) {
     })
     .select("id")
     .single();
-  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_invoice", purchase?.id);
+  if (purchaseError) pageError("/suppliers", `Supplier invoice could not be saved: ${errorMessage(purchaseError)}`);
+
+  let attachmentId: string | null = null;
+  try {
+    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_invoice", purchase?.id);
+  } catch (error) {
+    pageError("/suppliers", `Supplier invoice was created, but the attachment could not be uploaded: ${errorMessage(error as { message?: string; code?: string; details?: string })}`);
+  }
   if (attachmentId && purchase?.id) {
-    await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).eq("id", purchase.id);
+    const { error: attachmentError } = await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).eq("id", purchase.id);
+    if (attachmentError) pageError("/suppliers", `Supplier invoice attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
   await writeAudit(supabase, "create", "supplier_invoice", purchase?.id ?? null, `Recorded supplier invoice ${text(formData, "supplier_invoice_number") || ""}`, { total });
-  await supabase.from("inventory_movements").insert({
+  const { error: movementError } = await supabase.from("inventory_movements").insert({
     item_id: itemId,
     movement_type: "purchase",
     quantity_delta: quantity,
@@ -641,117 +739,179 @@ export async function recordSupplierPurchase(formData: FormData) {
     reference_type: "purchase_order",
     reference_id: purchase?.id
   });
+  if (movementError) pageError("/suppliers", `Supplier stock movement could not be saved: ${errorMessage(movementError)}`);
   revalidatePath("/suppliers");
   revalidatePath("/inventory");
+  pageSuccess("/suppliers", "Supplier invoice saved.");
 }
 
 export async function createSupplier(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("suppliers").insert({
+  const name = text(formData, "name");
+  if (!name) pageError("/suppliers", "Supplier name is required.");
+  const { data: supplier, error } = await supabase.from("suppliers").insert({
     name: text(formData, "name"),
     contact_name: text(formData, "contact_name") || null,
     phone: text(formData, "phone") || null,
     address: text(formData, "address") || null
-  });
-  await writeAudit(supabase, "create", "supplier", null, `Created supplier ${text(formData, "name")}`);
+  }).select("id").single();
+  if (error) pageError("/suppliers", `Supplier could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "supplier", supplier?.id ?? null, `Created supplier ${name}`);
   revalidatePath("/suppliers");
+  pageSuccess("/suppliers", "Supplier saved.");
 }
 
 export async function updateSupplier(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase
+  const supplierId = text(formData, "supplier_id");
+  const name = text(formData, "name");
+  if (!supplierId) pageError("/suppliers", "Select a supplier before saving changes.");
+  if (!name) pageError("/suppliers", "Supplier name is required.");
+  const { error } = await supabase
     .from("suppliers")
     .update({
-      name: text(formData, "name"),
+      name,
       contact_name: text(formData, "contact_name") || null,
       phone: text(formData, "phone") || null,
       address: text(formData, "address") || null
     })
-    .eq("id", text(formData, "supplier_id"));
-  await writeAudit(supabase, "update", "supplier", text(formData, "supplier_id"), `Updated supplier ${text(formData, "name")}`);
+    .eq("id", supplierId);
+  if (error) pageError("/suppliers", `Supplier could not be updated: ${errorMessage(error)}`);
+  await writeAudit(supabase, "update", "supplier", supplierId, `Updated supplier ${name}`);
   revalidatePath("/suppliers");
+  pageSuccess("/suppliers", "Supplier updated.");
 }
 
 export async function deleteSupplier(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("suppliers").update({ is_active: false }).eq("id", text(formData, "supplier_id"));
-  await writeAudit(supabase, "delete", "supplier", text(formData, "supplier_id"), "Deleted supplier");
+  const supplierId = text(formData, "supplier_id");
+  if (!supplierId) pageError("/suppliers", "Select a supplier before deleting.");
+  const { error } = await supabase.from("suppliers").update({ is_active: false }).eq("id", supplierId);
+  if (error) pageError("/suppliers", `Supplier could not be deleted: ${errorMessage(error)}`);
+  await writeAudit(supabase, "delete", "supplier", supplierId, "Deleted supplier");
   revalidatePath("/suppliers");
+  pageSuccess("/suppliers", "Supplier deleted.");
 }
 
 export async function recordSupplierPayment(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("supplier_payments").insert({
-    supplier_id: text(formData, "supplier_id"),
-    purchase_order_id: text(formData, "purchase_order_id") || null,
-    amount: asNumber(formData.get("amount")),
+  const supplierId = text(formData, "supplier_id");
+  const purchaseOrderId = text(formData, "purchase_order_id") || null;
+  const amount = asNumber(formData.get("amount"));
+  const redirectPath = purchaseOrderId ? `/suppliers/invoices/${purchaseOrderId}` : "/suppliers";
+  if (!supplierId) pageError(redirectPath, "Select a supplier before recording a supplier payment.");
+  if (amount <= 0) pageError(redirectPath, "Supplier payment amount must be greater than zero.");
+
+  const { data: payment, error } = await supabase.from("supplier_payments").insert({
+    supplier_id: supplierId,
+    purchase_order_id: purchaseOrderId,
+    amount,
     reference: text(formData, "reference") || null,
     notes: text(formData, "notes") || null
-  });
-  await writeAudit(supabase, "create", "supplier_payment", text(formData, "purchase_order_id") || null, "Recorded supplier payment", { amount: asNumber(formData.get("amount")) });
+  }).select("id").single();
+  if (error) pageError(redirectPath, `Supplier payment could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "supplier_payment", payment?.id ?? null, "Recorded supplier payment", { amount, purchase_order_id: purchaseOrderId });
   revalidatePath("/suppliers");
+  if (purchaseOrderId) revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
+  pageSuccess(redirectPath, "Supplier payment saved.");
 }
 
 export async function recordSupplierAdjustment(formData: FormData) {
   const supabase = await requireSupabase();
-  const { data: adjustment } = await supabase
+  const supplierId = text(formData, "supplier_id");
+  const purchaseOrderId = text(formData, "purchase_order_id") || null;
+  const amount = asNumber(formData.get("amount"));
+  const quantity = asNumber(formData.get("quantity"));
+  const redirectPath = purchaseOrderId ? `/suppliers/invoices/${purchaseOrderId}` : "/suppliers";
+  if (!supplierId) pageError(redirectPath, "Select a supplier before recording a return or damage.");
+  if (amount < 0 || quantity < 0) pageError(redirectPath, "Supplier adjustment quantity and amount cannot be negative.");
+
+  const { data: adjustment, error: adjustmentError } = await supabase
     .from("supplier_adjustments")
     .insert({
-      supplier_id: text(formData, "supplier_id"),
-      purchase_order_id: text(formData, "purchase_order_id") || null,
+      supplier_id: supplierId,
+      purchase_order_id: purchaseOrderId,
       item_id: text(formData, "item_id") || null,
       adjustment_type: text(formData, "adjustment_type") || "return",
-      quantity: asNumber(formData.get("quantity")),
-      amount: asNumber(formData.get("amount")),
+      quantity,
+      amount,
       reason: text(formData, "reason") || null,
       adjustment_date: text(formData, "adjustment_date") || new Date().toISOString().slice(0, 10)
     })
     .select("id")
     .single();
-  const attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_adjustment", adjustment?.id);
-  if (attachmentId && adjustment?.id) {
-    await supabase.from("supplier_adjustments").update({ attachment_file_id: attachmentId }).eq("id", adjustment.id);
+  if (adjustmentError) pageError(redirectPath, `Supplier return or damage could not be saved: ${errorMessage(adjustmentError)}`);
+
+  let attachmentId: string | null = null;
+  try {
+    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_adjustment", adjustment?.id);
+  } catch (error) {
+    pageError(redirectPath, `Supplier return/damage was created, but the attachment could not be uploaded: ${errorMessage(error as { message?: string; code?: string; details?: string })}`);
   }
-  await writeAudit(supabase, "create", "supplier_adjustment", adjustment?.id ?? null, "Recorded supplier adjustment", { amount: asNumber(formData.get("amount")) });
+  if (attachmentId && adjustment?.id) {
+    const { error: attachmentError } = await supabase.from("supplier_adjustments").update({ attachment_file_id: attachmentId }).eq("id", adjustment.id);
+    if (attachmentError) pageError(redirectPath, `Supplier adjustment attachment link could not be saved: ${errorMessage(attachmentError)}`);
+  }
+  await writeAudit(supabase, "create", "supplier_adjustment", adjustment?.id ?? null, "Recorded supplier adjustment", { amount });
   revalidatePath("/suppliers");
   revalidatePath("/reports/daily");
+  if (purchaseOrderId) revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
+  pageSuccess(redirectPath, "Supplier return or damage saved.");
 }
 
 export async function recordExpense(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("expenses").insert({
-    description: text(formData, "description"),
+  const description = text(formData, "description");
+  const amount = asNumber(formData.get("amount"));
+  if (!description) pageError("/expenses", "Expense description is required.");
+  if (amount <= 0) pageError("/expenses", "Expense amount must be greater than zero.");
+  const { data: expense, error } = await supabase.from("expenses").insert({
+    description,
     category: text(formData, "category") || "general",
-    amount: asNumber(formData.get("amount")),
+    amount,
     expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
-  });
-  await writeAudit(supabase, "create", "expense", null, `Recorded expense ${text(formData, "description")}`, { amount: asNumber(formData.get("amount")) });
+  }).select("id").single();
+  if (error) pageError("/expenses", `Expense could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "expense", expense?.id ?? null, `Recorded expense ${description}`, { amount });
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
+  pageSuccess("/expenses", "Expense saved.");
 }
 
 export async function updateExpense(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase
+  const expenseId = text(formData, "expense_id");
+  const description = text(formData, "description");
+  const amount = asNumber(formData.get("amount"));
+  if (!expenseId) pageError("/expenses", "Select an expense before saving changes.");
+  if (!description) pageError("/expenses", "Expense description is required.");
+  if (amount <= 0) pageError("/expenses", "Expense amount must be greater than zero.");
+  const { error } = await supabase
     .from("expenses")
     .update({
-      description: text(formData, "description"),
+      description,
       category: text(formData, "category") || "general",
-      amount: asNumber(formData.get("amount")),
+      amount,
       expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
     })
-    .eq("id", text(formData, "expense_id"));
-  await writeAudit(supabase, "update", "expense", text(formData, "expense_id"), `Updated expense ${text(formData, "description")}`);
+    .eq("id", expenseId);
+  if (error) pageError("/expenses", `Expense could not be updated: ${errorMessage(error)}`);
+  await writeAudit(supabase, "update", "expense", expenseId, `Updated expense ${description}`);
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
+  pageSuccess("/expenses", "Expense updated.");
 }
 
 export async function deleteExpense(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("expenses").delete().eq("id", text(formData, "expense_id"));
-  await writeAudit(supabase, "delete", "expense", text(formData, "expense_id"), "Deleted expense");
+  const expenseId = text(formData, "expense_id");
+  if (!expenseId) pageError("/expenses", "Select an expense before deleting.");
+  const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
+  if (error) pageError("/expenses", `Expense could not be deleted: ${errorMessage(error)}`);
+  await writeAudit(supabase, "delete", "expense", expenseId, "Deleted expense");
   revalidatePath("/expenses");
   revalidatePath("/reports/daily");
+  pageSuccess("/expenses", "Expense deleted.");
 }
 
 export async function saveCutoffSummary(formData: FormData) {

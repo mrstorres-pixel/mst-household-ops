@@ -1,6 +1,7 @@
 import { deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listArchivedItems, listItems, listSuppliers } from "@/lib/data";
 import { money } from "@/lib/format";
@@ -13,16 +14,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader title="Inventory" description={`Current stock value: ${money(totalValue)}`} />
-      {params.error ? (
-        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
-          {params.error}
-        </div>
-      ) : null}
-      {params.success ? (
-        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800">
-          {params.success}
-        </div>
-      ) : null}
+      <PageNotice error={params.error} success={params.success} />
       <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
         <InventoryItemForm suppliers={suppliers} />
         <div className="card table-wrap">

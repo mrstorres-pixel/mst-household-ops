@@ -1,16 +1,19 @@
 import Link from "next/link";
 import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function SuppliersPage() {
+export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments(), listSupplierInvoices()]);
 
   return (
     <>
       <PageHeader title="Suppliers" description="Supplier list, purchases to order/receive, and payable balances." />
+      <PageNotice error={params.error} success={params.success} />
       <div className="grid gap-5 xl:grid-cols-2">
         <form action={createSupplier} className="card grid gap-4 p-5">
           <h3 className="text-xl font-bold">Add Supplier</h3>

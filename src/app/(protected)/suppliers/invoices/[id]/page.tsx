@@ -1,12 +1,20 @@
 import { notFound } from "next/navigation";
 import { recordSupplierAdjustment, recordSupplierPayment } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { getSupplierInvoice } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function SupplierInvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SupplierInvoiceDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; success?: string }>;
+}) {
   const { id } = await params;
+  const notices = await searchParams;
   const data = await getSupplierInvoice(id);
   if (!data) notFound();
   const invoice = data.invoice;
@@ -17,6 +25,7 @@ export default async function SupplierInvoiceDetailPage({ params }: { params: Pr
         title={`Supplier Invoice ${invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}`}
         description={`${invoice.suppliers?.name ?? "Supplier"} balance on this invoice: ${money(data.remaining)}`}
       />
+      <PageNotice error={notices.error} success={notices.success} />
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <section className="grid gap-5">
           <div className="card p-5">

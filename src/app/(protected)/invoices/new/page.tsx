@@ -1,6 +1,7 @@
 import { createInvoice } from "@/app/actions";
 import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listItems } from "@/lib/data";
 import { todayISO } from "@/lib/format";
@@ -11,13 +12,15 @@ type CustomerOption = {
   customer_subaccounts?: Array<{ id: string; name: string }>;
 };
 
-export default async function NewInvoicePage() {
+export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const [customerRows, items] = await Promise.all([listCustomerRows(), listItems()]);
   const customers = customerRows as CustomerOption[];
 
   return (
     <>
       <PageHeader title="New Invoice" description="Post itemized sales to customer balances and inventory movements." />
+      <PageNotice error={params.error} success={params.success} />
       <form action={createInvoice} className="grid gap-5">
         <section className="card grid gap-4 p-5 md:grid-cols-3">
           <div className="field">

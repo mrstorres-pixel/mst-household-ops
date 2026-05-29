@@ -1,15 +1,18 @@
 import { recordDamage } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listDamages, listItems, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function DamagesPage() {
+export default async function DamagesPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+  const params = await searchParams;
   const [items, damages, customers, suppliers] = await Promise.all([listItems(), listDamages(), listCustomerRows(), listSuppliers()]);
 
   return (
     <>
       <PageHeader title="Damage Records" description="Separate stock damage log with inventory deduction." />
+      <PageNotice error={params.error} success={params.success} />
       <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
         <form action={recordDamage} className="card grid gap-4 p-5">
           <h3 className="text-xl font-bold">Record Damage / Return</h3>
