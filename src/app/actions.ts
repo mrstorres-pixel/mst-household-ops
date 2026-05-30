@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { asNumber } from "@/lib/format";
 import { hasSupabaseEnv } from "@/lib/config";
@@ -20,7 +21,7 @@ function errorMessage(error: { message?: string; code?: string; details?: string
 
 function moneyNumber(value: string | undefined) {
   if (!value) return 0;
-  const parsed = Number(value.replace(/[₱,\s]/g, ""));
+  const parsed = Number(value.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -35,6 +36,49 @@ function pageSuccess(path: string, message: string): never {
 async function requireSupabase() {
   if (!hasSupabaseEnv()) throw new Error("Supabase is not configured.");
   return createClient();
+}
+
+async function requireAdminSupabase() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+  return createSupabaseAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false }
+  });
+}
+
+async function upsertCategoryId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  categoryName: string,
+  errorPath: string
+) {
+  if (!categoryName) return null;
+  const adminSupabase = await requireAdminSupabase();
+  const client = adminSupabase ?? supabase;
+  const { data, error } = await client
+    .from("categories")
+    .upsert({ name: categoryName }, { onConflict: "name" })
+    .select("id")
+    .single();
+  if (error) pageError(errorPath, `Category "${categoryName}" could not be saved: ${errorMessage(error)}`);
+  return data?.id ?? null;
+}
+
+async function upsertSupplierId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  supplierName: string,
+  errorPath: string
+) {
+  if (!supplierName) return null;
+  const adminSupabase = await requireAdminSupabase();
+  const client = adminSupabase ?? supabase;
+  const { data, error } = await client
+    .from("suppliers")
+    .upsert({ name: supplierName, is_active: true }, { onConflict: "name" })
+    .select("id")
+    .single();
+  if (error) pageError(errorPath, `Supplier "${supplierName}" could not be saved: ${errorMessage(error)}`);
+  return data?.id ?? null;
 }
 
 async function writeAudit(
@@ -242,16 +286,7 @@ export async function deleteCustomer(formData: FormData) {
 export async function createItem(formData: FormData) {
   const supabase = await requireSupabase();
   const categoryName = text(formData, "category");
-  let categoryId: string | null = null;
-  if (categoryName) {
-    const { data, error } = await supabase
-      .from("categories")
-      .upsert({ name: categoryName }, { onConflict: "name" })
-      .select("id")
-      .single();
-    if (error) redirect(`/inventory?error=${encodeURIComponent(`Category could not be saved: ${errorMessage(error)}`)}`);
-    categoryId = data?.id ?? null;
-  }
+  const categoryId = await upsertCategoryId(supabase, categoryName, "/inventory");
   const sku = normalizeSku(text(formData, "sku"));
   if (sku) {
     const { data: existingSku } = await supabase
@@ -324,7 +359,7 @@ function parseInventoryLine(line: string): ParsedInventoryLine | null {
     sku = descriptorParts[1];
   }
 
-  const secondColumnIsNumber = columns[1] === "" || Number.isFinite(Number((columns[1] ?? "").replace(/[₱,\s]/g, "")));
+  const secondColumnIsNumber = columns[1] === "" || Number.isFinite(Number((columns[1] ?? "").replace(/[^\d.-]/g, "")));
   if (columns.length > 1 && !secondColumnIsNumber) {
     sku = columns[1] || sku;
     return {
@@ -382,27 +417,8 @@ export async function bulkImportInventoryItems(formData: FormData) {
   let added = 0;
 
   for (const item of itemsToCreate) {
-    let supplierId: string | null = null;
-    if (item.supplierName) {
-      const { data: supplier, error: supplierError } = await supabase
-        .from("suppliers")
-        .upsert({ name: item.supplierName, is_active: true }, { onConflict: "name" })
-        .select("id")
-        .single();
-      if (supplierError) pageError("/inventory", `Supplier "${item.supplierName}" could not be saved: ${errorMessage(supplierError)}`);
-      supplierId = supplier?.id ?? null;
-    }
-
-    let categoryId: string | null = null;
-    if (item.categoryName) {
-      const { data: category, error: categoryError } = await supabase
-        .from("categories")
-        .upsert({ name: item.categoryName }, { onConflict: "name" })
-        .select("id")
-        .single();
-      if (categoryError) pageError("/inventory", `Category "${item.categoryName}" could not be saved: ${errorMessage(categoryError)}`);
-      categoryId = category?.id ?? null;
-    }
+    const supplierId = await upsertSupplierId(supabase, item.supplierName, "/inventory");
+    const categoryId = await upsertCategoryId(supabase, item.categoryName, "/inventory");
 
     const { data: createdItem, error } = await supabase
       .from("items")
@@ -449,16 +465,7 @@ export async function updateItem(formData: FormData) {
   const itemId = text(formData, "item_id");
   const sku = normalizeSku(text(formData, "sku"));
   const categoryName = text(formData, "category");
-  let categoryId: string | null = null;
-  if (categoryName) {
-    const { data, error } = await supabase
-      .from("categories")
-      .upsert({ name: categoryName }, { onConflict: "name" })
-      .select("id")
-      .single();
-    if (error) redirect(`/inventory?error=${encodeURIComponent(`Category could not be saved: ${errorMessage(error)}`)}`);
-    categoryId = data?.id ?? null;
-  }
+  const categoryId = await upsertCategoryId(supabase, categoryName, "/inventory");
   if (sku) {
     const { data: existingSku } = await supabase
       .from("items")
