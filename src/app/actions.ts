@@ -18,6 +18,12 @@ function errorMessage(error: { message?: string; code?: string; details?: string
   return parts.join(" ");
 }
 
+function moneyNumber(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = Number(value.replace(/[₱,\s]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function pageError(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
 }
@@ -292,6 +298,151 @@ export async function createItem(formData: FormData) {
   await writeAudit(supabase, "create", "item", item?.id ?? null, `Created item ${text(formData, "name")}`);
   revalidatePath("/inventory");
   redirect(`/inventory?success=${encodeURIComponent(`Saved item: ${text(formData, "name")}`)}`);
+}
+
+type ParsedInventoryLine = {
+  name: string;
+  sku: string;
+  supplierName: string;
+  categoryName: string;
+  unitCost: number;
+  defaultPrice: number;
+  quantity: number;
+};
+
+function parseInventoryLine(line: string): ParsedInventoryLine | null {
+  const columns = line.includes("|") ? line.split("|").map((part) => part.trim()) : line.split("\t").map((part) => part.trim());
+  const descriptor = columns[0]?.replace(/\s+/g, " ").trim();
+  if (!descriptor) return null;
+
+  let supplierName = "";
+  let sku = "";
+  let name = descriptor;
+  const descriptorParts = descriptor.split(" - ").map((part) => part.trim()).filter(Boolean);
+  if (descriptorParts.length >= 3) {
+    supplierName = descriptorParts[0];
+    sku = descriptorParts[1];
+    name = descriptorParts.slice(2).join(" - ");
+  }
+
+  const secondColumnIsNumber = columns[1] === "" || Number.isFinite(Number((columns[1] ?? "").replace(/[₱,\s]/g, "")));
+  if (columns.length > 1 && !secondColumnIsNumber) {
+    sku = columns[1] || sku;
+    return {
+      name,
+      sku: normalizeSku(sku) ?? "",
+      supplierName: columns[6] || supplierName,
+      categoryName: columns[5] || "",
+      unitCost: moneyNumber(columns[2]),
+      defaultPrice: moneyNumber(columns[3]),
+      quantity: moneyNumber(columns[4])
+    };
+  }
+
+  return {
+    name,
+    sku: normalizeSku(sku) ?? "",
+    supplierName: columns[5] || supplierName,
+    categoryName: columns[4] || "",
+    unitCost: moneyNumber(columns[1]),
+    defaultPrice: moneyNumber(columns[2]),
+    quantity: moneyNumber(columns[3])
+  };
+}
+
+export async function bulkImportInventoryItems(formData: FormData) {
+  const supabase = await requireSupabase();
+  const rawLines = String(formData.get("items") ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!rawLines.length) pageError("/inventory", "Paste at least one inventory item to import.");
+
+  const parsedLines = rawLines.map(parseInventoryLine).filter(Boolean) as ParsedInventoryLine[];
+  if (!parsedLines.length) pageError("/inventory", "No valid inventory rows were found.");
+
+  const uniqueBySkuOrName = new Map<string, ParsedInventoryLine>();
+  for (const item of parsedLines) {
+    const key = item.sku ? `sku:${item.sku}` : `name:${item.name.toUpperCase()}`;
+    if (!uniqueBySkuOrName.has(key)) uniqueBySkuOrName.set(key, item);
+  }
+  const uniqueItems = Array.from(uniqueBySkuOrName.values());
+  const skuList = uniqueItems.map((item) => item.sku).filter(Boolean);
+  const nameList = uniqueItems.map((item) => item.name);
+
+  const [existingSkuResult, existingNameResult] = await Promise.all([
+    skuList.length ? supabase.from("items").select("sku").in("sku", skuList) : Promise.resolve({ data: [], error: null }),
+    nameList.length ? supabase.from("items").select("name").in("name", nameList) : Promise.resolve({ data: [], error: null })
+  ]);
+  if (existingSkuResult.error) pageError("/inventory", `Existing SKUs could not be checked: ${errorMessage(existingSkuResult.error)}`);
+  if (existingNameResult.error) pageError("/inventory", `Existing item names could not be checked: ${errorMessage(existingNameResult.error)}`);
+
+  const existingSkus = new Set((existingSkuResult.data ?? []).map((row) => String(row.sku).toUpperCase()));
+  const existingNames = new Set((existingNameResult.data ?? []).map((row) => String(row.name).toUpperCase()));
+  const itemsToCreate = uniqueItems.filter((item) => item.sku ? !existingSkus.has(item.sku.toUpperCase()) : !existingNames.has(item.name.toUpperCase()));
+  let added = 0;
+
+  for (const item of itemsToCreate) {
+    let supplierId: string | null = null;
+    if (item.supplierName) {
+      const { data: supplier, error: supplierError } = await supabase
+        .from("suppliers")
+        .upsert({ name: item.supplierName, is_active: true }, { onConflict: "name" })
+        .select("id")
+        .single();
+      if (supplierError) pageError("/inventory", `Supplier "${item.supplierName}" could not be saved: ${errorMessage(supplierError)}`);
+      supplierId = supplier?.id ?? null;
+    }
+
+    let categoryId: string | null = null;
+    if (item.categoryName) {
+      const { data: category, error: categoryError } = await supabase
+        .from("categories")
+        .upsert({ name: item.categoryName }, { onConflict: "name" })
+        .select("id")
+        .single();
+      if (categoryError) pageError("/inventory", `Category "${item.categoryName}" could not be saved: ${errorMessage(categoryError)}`);
+      categoryId = category?.id ?? null;
+    }
+
+    const { data: createdItem, error } = await supabase
+      .from("items")
+      .insert({
+        name: item.name,
+        sku: item.sku || null,
+        primary_supplier_id: supplierId,
+        category_id: categoryId,
+        unit_cost: item.unitCost,
+        default_price: item.defaultPrice,
+        current_quantity: item.quantity,
+        reorder_level: 0
+      })
+      .select("id")
+      .single();
+    if (error) pageError("/inventory", `Item "${item.name}" could not be imported: ${errorMessage(error)}`);
+
+    if (createdItem?.id && supplierId) {
+      const { error: supplierItemError } = await supabase.from("supplier_items").upsert(
+        {
+          supplier_id: supplierId,
+          item_id: createdItem.id,
+          supplier_price: item.unitCost
+        },
+        { onConflict: "supplier_id,item_id" }
+      );
+      if (supplierItemError) pageError("/inventory", `Item "${item.name}" was imported, but supplier link failed: ${errorMessage(supplierItemError)}`);
+    }
+    added += 1;
+  }
+
+  await writeAudit(supabase, "bulk_import", "item", null, "Bulk imported inventory items", {
+    input_count: rawLines.length,
+    unique_count: uniqueItems.length,
+    added_count: added,
+    skipped_count: uniqueItems.length - added
+  });
+  revalidatePath("/inventory");
+  pageSuccess("/inventory", `Imported ${added} inventory items. Skipped ${uniqueItems.length - added} duplicates from existing items or repeated pasted rows.`);
 }
 
 export async function updateItem(formData: FormData) {

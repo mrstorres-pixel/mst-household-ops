@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
+import { InventoryBulkImportForm } from "@/components/inventory-bulk-import-form";
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -116,7 +117,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           </select>
           <button className="btn" type="submit">Filter</button>
         </form>
-        <InventoryItemForm suppliers={suppliers} />
+        <div className="flex gap-2">
+          <InventoryBulkImportForm />
+          <InventoryItemForm suppliers={suppliers} />
+        </div>
       </div>
       <section>
         <div className="card table-wrap">
