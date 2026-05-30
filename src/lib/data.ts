@@ -4,6 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 
 export type Row = Record<string, unknown>;
 
+export type InventorySortKey = "name" | "sku" | "supplier" | "category" | "quantity" | "price" | "cost" | "value";
+export type InventoryFilterStatus = "all" | "in_stock" | "low_stock" | "out_of_stock" | "missing_sku" | "no_supplier" | "no_category" | "missing_cost";
+
+export type InventoryListOptions = {
+  q?: string;
+  categoryId?: string;
+  supplierId?: string;
+  status?: InventoryFilterStatus;
+  sort?: InventorySortKey;
+  direction?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+};
+
 export async function getProfile() {
   noStore();
   if (!hasSupabaseEnv()) return null;
@@ -104,6 +118,125 @@ export async function listArchivedItems(search?: string) {
   if (search) query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
   const { data } = await query;
   return data ?? [];
+}
+
+export async function listInventoryItems(options: InventoryListOptions = {}) {
+  noStore();
+  const page = Math.max(1, Number(options.page ?? 1));
+  const pageSize = Math.min(100, Math.max(10, Number(options.pageSize ?? 25)));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  const sort = options.sort ?? "name";
+  const direction = options.direction === "desc" ? "desc" : "asc";
+  const pageInMemory = sort === "value" || options.status === "low_stock";
+
+  if (!hasSupabaseEnv()) {
+    return { items: [], total: 0, page, pageSize, pageCount: 1 };
+  }
+
+  const supabase = await createClient();
+  let query = supabase
+    .from("items")
+    .select("*, categories(name), suppliers(name)", { count: "exact" })
+    .eq("is_active", true);
+
+  if (options.q) query = query.or(`name.ilike.%${options.q}%,sku.ilike.%${options.q}%`);
+  if (options.categoryId) query = query.eq("category_id", options.categoryId);
+  if (options.supplierId) query = query.eq("primary_supplier_id", options.supplierId);
+
+  switch (options.status) {
+    case "in_stock":
+      query = query.gt("current_quantity", 0);
+      break;
+    case "out_of_stock":
+      query = query.lte("current_quantity", 0);
+      break;
+    case "missing_sku":
+      query = query.or("sku.is.null,sku.eq.");
+      break;
+    case "no_supplier":
+      query = query.is("primary_supplier_id", null);
+      break;
+    case "no_category":
+      query = query.is("category_id", null);
+      break;
+    case "missing_cost":
+      query = query.lte("unit_cost", 0);
+      break;
+  }
+
+  if (sort === "supplier") {
+    query = query.order("name", { ascending: direction === "asc", referencedTable: "suppliers" }).order("name");
+  } else if (sort === "category") {
+    query = query.order("name", { ascending: direction === "asc", referencedTable: "categories" }).order("name");
+  } else if (sort === "quantity") {
+    query = query.order("current_quantity", { ascending: direction === "asc" }).order("name");
+  } else if (sort === "price") {
+    query = query.order("default_price", { ascending: direction === "asc" }).order("name");
+  } else if (sort === "cost") {
+    query = query.order("unit_cost", { ascending: direction === "asc" }).order("name");
+  } else if (sort === "sku") {
+    query = query.order("sku", { ascending: direction === "asc", nullsFirst: false }).order("name");
+  } else {
+    query = query.order("name", { ascending: direction === "asc" });
+  }
+
+  const { data, count } = await (pageInMemory ? query : query.range(from, to));
+  let items = data ?? [];
+  if (options.status === "low_stock") {
+    items = items.filter((item) => {
+      const quantity = Number(item.current_quantity ?? 0);
+      const reorder = Number(item.reorder_level ?? 0);
+      return quantity > 0 && reorder > 0 && quantity <= reorder;
+    });
+  }
+  if (sort === "value") {
+    items = [...items].sort((first, second) => {
+      const firstValue = Number(first.current_quantity ?? 0) * Number(first.unit_cost ?? 0);
+      const secondValue = Number(second.current_quantity ?? 0) * Number(second.unit_cost ?? 0);
+      return direction === "asc" ? firstValue - secondValue : secondValue - firstValue;
+    });
+  }
+
+  const total = pageInMemory ? items.length : count ?? items.length;
+  const pagedItems = pageInMemory ? items.slice(from, to + 1) : items;
+  return { items: pagedItems, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+export async function getInventoryItem(id: string) {
+  noStore();
+  if (!hasSupabaseEnv()) return null;
+  const supabase = await createClient();
+  const [{ data: item }, { data: movements }, { data: invoiceItems }, { data: purchases }, { data: damages }] = await Promise.all([
+    supabase.from("items").select("*, categories(name), suppliers(name)").eq("id", id).maybeSingle(),
+    supabase.from("inventory_movements").select("*").eq("item_id", id).order("movement_date", { ascending: false }).limit(100),
+    supabase
+      .from("invoice_items")
+      .select("*, invoices(invoice_number, invoice_date, customers(name))")
+      .eq("item_id", id)
+      .order("id", { ascending: false })
+      .limit(50),
+    supabase
+      .from("purchase_orders")
+      .select("*, suppliers(name), app_files(id, file_name)")
+      .eq("item_id", id)
+      .order("order_date", { ascending: false })
+      .limit(50),
+    supabase
+      .from("damage_records")
+      .select("*, customers(name), suppliers(name)")
+      .eq("item_id", id)
+      .order("damage_date", { ascending: false })
+      .limit(50)
+  ]);
+  if (!item) return null;
+  return {
+    item,
+    movements: movements ?? [],
+    invoiceItems: invoiceItems ?? [],
+    purchases: purchases ?? [],
+    damages: damages ?? []
+  };
 }
 
 export async function listCategories() {
