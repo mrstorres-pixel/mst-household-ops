@@ -87,6 +87,24 @@ textarea {
   color: var(--foreground);
 }
 
+.btn-warning {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  color: #92400e;
+}
+
+.btn-danger {
+  border-color: #dc2626;
+  background: #b91c1c;
+  color: white;
+}
+
+.btn-danger.btn-secondary {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .btn:disabled {
   cursor: wait;
   opacity: 0.72;

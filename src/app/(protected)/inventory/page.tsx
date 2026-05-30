@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { InventoryBulkImportForm } from "@/components/inventory-bulk-import-form";
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
@@ -180,11 +181,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                         </form>
                         <form action={deleteItem} className="mt-2">
                           <input type="hidden" name="item_id" value={item.id} />
-                          <SubmitButton className="btn" pendingText="Archiving...">Archive Item</SubmitButton>
+                          <ConfirmSubmitButton className="btn btn-warning" pendingText="Archiving..." title="Archive item?" message="This hides the item from active inventory lists while keeping its history." confirmLabel="Archive Item">Archive Item</ConfirmSubmitButton>
                         </form>
                         <form action={permanentlyDeleteItem} className="mt-2">
                           <input type="hidden" name="item_id" value={item.id} />
-                          <SubmitButton className="btn btn-secondary" pendingText="Deleting...">Permanent Delete</SubmitButton>
+                          <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Items with invoices, stock movements, damages, or supplier history may be blocked by the database." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
                         </form>
                       </details>
                     </td>
@@ -221,7 +222,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     </form>
                     <form action={permanentlyDeleteItem}>
                       <input type="hidden" name="item_id" value={item.id} />
-                      <SubmitButton className="btn" pendingText="Deleting...">Permanent Delete</SubmitButton>
+                      <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Restore the item instead if you need to keep it available." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
                     </form>
                   </td>
                 </tr>

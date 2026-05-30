@@ -1,4 +1,5 @@
 import { deleteCheque, updateChequeStatus } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
@@ -38,7 +39,7 @@ export default async function ChequesPage({ searchParams }: { searchParams: Prom
                   </form>
                   <form action={deleteCheque} className="mt-2">
                     <input type="hidden" name="cheque_id" value={cheque.id} />
-                    <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
+                    <ConfirmSubmitButton pendingText="Deleting..." title="Delete cheque record?" message="This removes the cheque tracking record. Use status changes for received, redeemed, bounced, or cancelled cheques when possible." confirmLabel="Delete Cheque">Delete</ConfirmSubmitButton>
                   </form>
                 </td>
               </tr>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
@@ -79,7 +80,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
                         </form>
                         <form action={deleteSupplier} className="mt-2">
                           <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
-                          <SubmitButton className="btn" pendingText="Deleting...">Delete</SubmitButton>
+                          <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier?" message="This hides the supplier from active supplier lists while keeping purchase and payment history." confirmLabel="Delete Supplier">Delete</ConfirmSubmitButton>
                         </form>
                       </details>
                     </td>

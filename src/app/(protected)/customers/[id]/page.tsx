@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { addCustomerSubaccount, deleteCustomer, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
@@ -41,7 +42,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
             <input type="hidden" name="customer_id" value={id} />
             <h3 className="text-xl font-bold text-red-700">Delete Customer</h3>
             <p className="text-sm text-[color:var(--muted-foreground)]">This hides the customer from active lists while keeping historical invoices and ledger records intact.</p>
-            <SubmitButton className="btn" pendingText="Deleting...">Delete Customer</SubmitButton>
+            <ConfirmSubmitButton pendingText="Deleting..." title="Delete customer?" message="This hides the customer from active lists. Historical invoices, payments, and ledger records are kept." confirmLabel="Delete Customer">Delete Customer</ConfirmSubmitButton>
           </form>
           <div className="card p-5">
             <h3 className="text-xl font-bold">Sub-balances</h3>
@@ -52,7 +53,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                   <form action={removeCustomerSubaccount}>
                     <input type="hidden" name="customer_id" value={id} />
                     <input type="hidden" name="subaccount_id" value={sub.subaccount_id} />
-                    <SubmitButton className="btn btn-secondary" pendingText="Removing...">Remove</SubmitButton>
+                    <ConfirmSubmitButton className="btn btn-warning" pendingText="Removing..." title="Remove sub-balance?" message="Only zero-balance sub-balances can be removed. This removes the sub-balance from this customer profile." confirmLabel="Remove">Remove</ConfirmSubmitButton>
                   </form>
                 </div>
               ))}
