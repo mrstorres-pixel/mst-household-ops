@@ -44,7 +44,7 @@ export function InventoryBulkImportForm() {
             <form action={bulkImportInventoryItems} className="grid gap-4 p-5">
               <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-sm text-[color:var(--muted-foreground)]">
                 <p className="font-bold text-[color:var(--foreground)]">Supported formats</p>
-                <p><code>SUPPLIER - SKU - ITEM NAME | CAPITAL | PRICE | QTY | CATEGORY</code></p>
+                <p><code>BRAND - SKU - ITEM NAME | CAPITAL | PRICE | QTY | CATEGORY</code></p>
                 <p><code>ITEM NAME | CAPITAL | PRICE | QTY | CATEGORY</code></p>
                 <p><code>ITEM NAME | SKU | CAPITAL | PRICE | QTY | CATEGORY | SUPPLIER</code></p>
               </div>
@@ -54,7 +54,7 @@ export function InventoryBulkImportForm() {
                   className="input min-h-96 font-mono text-sm"
                   name="items"
                   autoFocus
-                  placeholder={"STANDARD - STS - 16 STAND FAN | 850 | 1200 | 5 | ELECTRIC FAN\nTRIFOLD MAKAPAL 36 | 1000 | 1400 | 2 | FOAM\nTRIFOLD MAKAPAL 48 | | 1600 | 1"}
+                  placeholder={"MICROMATIC - MAP 208B - MICROMATIC ITEM | 850 | 1200 | 5 | ELECTRIC FAN\nTRIFOLD MAKAPAL 36 | 1000 | 1400 | 2 | FOAM\nTRIFOLD MAKAPAL 48 | | 1600 | 1"}
                   required
                 />
               </div>

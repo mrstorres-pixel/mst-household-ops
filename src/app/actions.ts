@@ -315,14 +315,13 @@ function parseInventoryLine(line: string): ParsedInventoryLine | null {
   const descriptor = columns[0]?.replace(/\s+/g, " ").trim();
   if (!descriptor) return null;
 
-  let supplierName = "";
+  const supplierName = "";
   let sku = "";
-  let name = descriptor;
+  const name = descriptor;
   const descriptorParts = descriptor.split(" - ").map((part) => part.trim()).filter(Boolean);
   if (descriptorParts.length >= 3) {
-    supplierName = descriptorParts[0];
+    // Keep brand-style prefixes, such as "MICROMATIC", inside the item name.
     sku = descriptorParts[1];
-    name = descriptorParts.slice(2).join(" - ");
   }
 
   const secondColumnIsNumber = columns[1] === "" || Number.isFinite(Number((columns[1] ?? "").replace(/[₱,\s]/g, "")));
