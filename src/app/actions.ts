@@ -141,6 +141,38 @@ export async function createCustomer(formData: FormData) {
   pageSuccess(`/customers/${data.id}`, `Created customer: ${parsed.name}`);
 }
 
+export async function bulkImportCustomers(formData: FormData) {
+  const supabase = await requireSupabase();
+  const names = text(formData, "names")
+    .split(/\r?\n/)
+    .map((name) => name.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+  const uniqueNames = Array.from(new Map(names.map((name) => [name.toUpperCase(), name])).values());
+  if (!uniqueNames.length) pageError("/customers", "Paste at least one customer name to import.");
+
+  const { data: existing, error: existingError } = await supabase
+    .from("customers")
+    .select("name")
+    .in("name", uniqueNames);
+  if (existingError) pageError("/customers", `Existing customers could not be checked: ${errorMessage(existingError)}`);
+
+  const existingNames = new Set((existing ?? []).map((row) => String(row.name).toUpperCase()));
+  const customersToInsert = uniqueNames.filter((name) => !existingNames.has(name.toUpperCase())).map((name) => ({ name }));
+  if (customersToInsert.length) {
+    const { error } = await supabase.from("customers").insert(customersToInsert);
+    if (error) pageError("/customers", `Customers could not be imported: ${errorMessage(error)}`);
+  }
+
+  await writeAudit(supabase, "bulk_import", "customer", null, "Bulk imported customers", {
+    input_count: names.length,
+    unique_count: uniqueNames.length,
+    added_count: customersToInsert.length,
+    skipped_count: uniqueNames.length - customersToInsert.length
+  });
+  revalidatePath("/customers");
+  pageSuccess("/customers", `Imported ${customersToInsert.length} customers. Skipped ${uniqueNames.length - customersToInsert.length} existing or repeated names.`);
+}
+
 export async function updateCustomer(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");

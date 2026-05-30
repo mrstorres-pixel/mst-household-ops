@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CustomerBulkImportForm } from "@/components/customer-bulk-import-form";
 import { CustomerCreateForm } from "@/components/customer-create-form";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -84,7 +85,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
           </select>
           <button className="btn" type="submit">Filter</button>
         </form>
-        <CustomerCreateForm />
+        <div className="flex gap-2">
+          <CustomerBulkImportForm />
+          <CustomerCreateForm />
+        </div>
       </div>
       <section>
         <div className="card table-wrap">

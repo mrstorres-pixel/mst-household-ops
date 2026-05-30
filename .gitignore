@@ -9,3 +9,4 @@ vercel.json
 .vercel/
 
 .vercel
+.env*
