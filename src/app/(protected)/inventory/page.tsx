@@ -15,8 +15,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
     <>
       <PageHeader title="Inventory" description={`Current stock value: ${money(totalValue)}`} />
       <PageNotice error={params.error} success={params.success} />
-      <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
+      <div className="mb-5 flex justify-end">
         <InventoryItemForm suppliers={suppliers} />
+      </div>
+      <section>
         <div className="card table-wrap">
           <table>
             <thead><tr><th>Item</th><th>Supplier</th><th>Category</th><th>Qty</th><th>Price</th><th>Cost</th><th>Value</th><th>Edit / Archive</th></tr></thead>
