@@ -299,6 +299,46 @@ export async function updateItem(formData: FormData) {
   redirect(`/inventory?success=${encodeURIComponent(`Updated item: ${text(formData, "name")}`)}`);
 }
 
+export async function adjustItemQuantity(formData: FormData) {
+  const supabase = await requireSupabase();
+  const itemId = text(formData, "item_id");
+  const newQuantity = asNumber(formData.get("new_quantity"));
+  const reason = text(formData, "reason") || "Manual stock count correction";
+  if (!itemId) pageError("/inventory", "Select an item before adjusting stock.");
+  if (newQuantity < 0) pageError("/inventory", "Stock quantity cannot be negative.");
+
+  const { data: item, error: itemError } = await supabase
+    .from("items")
+    .select("id, name, current_quantity, unit_cost")
+    .eq("id", itemId)
+    .single();
+  if (itemError || !item) pageError("/inventory", `Item could not be loaded for stock adjustment: ${errorMessage(itemError)}`);
+
+  const currentQuantity = Number(item.current_quantity ?? 0);
+  const quantityDelta = newQuantity - currentQuantity;
+  if (quantityDelta === 0) pageSuccess("/inventory", `No stock change needed for ${item.name}.`);
+
+  const { error: movementError } = await supabase.from("inventory_movements").insert({
+    item_id: itemId,
+    movement_type: "adjustment",
+    quantity_delta: quantityDelta,
+    unit_cost: Number(item.unit_cost ?? 0),
+    reference_type: "manual_adjustment",
+    reference_id: itemId,
+    notes: reason
+  });
+  if (movementError) pageError("/inventory", `Stock quantity could not be adjusted: ${errorMessage(movementError)}`);
+
+  await writeAudit(supabase, "adjust_stock", "item", itemId, `Adjusted stock for ${item.name}`, {
+    previous_quantity: currentQuantity,
+    new_quantity: newQuantity,
+    quantity_delta: quantityDelta,
+    reason
+  });
+  revalidatePath("/inventory");
+  pageSuccess("/inventory", `Stock adjusted for ${item.name}: ${currentQuantity} to ${newQuantity}.`);
+}
+
 export async function deleteItem(formData: FormData) {
   const supabase = await requireSupabase();
   const { error } = await supabase.from("items").update({ is_active: false }).eq("id", text(formData, "item_id"));

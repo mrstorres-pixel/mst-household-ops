@@ -1,4 +1,4 @@
-import { deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
+import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, restoreItem, updateItem } from "@/app/actions";
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -46,6 +46,13 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                         <input className="input" name="unit_cost" type="number" step="0.01" defaultValue={item.unit_cost} />
                         <input className="input" name="reorder_level" type="number" step="0.01" defaultValue={item.reorder_level} />
                         <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
+                      </form>
+                      <form action={adjustItemQuantity} className="mt-3 grid min-w-72 gap-2 border-t border-[color:var(--border)] pt-3">
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <label className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Set Stock Qty</label>
+                        <input className="input" name="new_quantity" type="number" step="0.01" min="0" defaultValue={item.current_quantity} />
+                        <input className="input" name="reason" placeholder="Reason / stock count note" defaultValue="Manual stock count correction" />
+                        <SubmitButton className="btn btn-secondary" pendingText="Adjusting...">Adjust Stock</SubmitButton>
                       </form>
                       <form action={deleteItem} className="mt-2">
                         <input type="hidden" name="item_id" value={item.id} />
