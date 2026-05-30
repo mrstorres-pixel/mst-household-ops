@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { addCustomerSubaccount, deleteCustomer, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
 import { PageHeader } from "@/components/page-header";
+import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { getCustomer, listItems } from "@/lib/data";
 import { money } from "@/lib/format";
 
-export default async function CustomerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function CustomerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string; success?: string }> }) {
   const { id } = await params;
   const query = await searchParams;
   const data = await getCustomer(id);
@@ -18,7 +19,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
   return (
     <>
       <PageHeader title={data.customer.name} description={`Customer balance: ${money(balance)}`} />
-      {query.error ? <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{query.error}</p> : null}
+      <PageNotice error={query.error} success={query.success} />
       <div className="mb-5 grid gap-4 md:grid-cols-3">
         <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Recent Invoice Total</p><p className="mt-2 text-2xl font-bold">{money(invoiceTotal)}</p></section>
         <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Recent Payments</p><p className="mt-2 text-2xl font-bold">{money(paymentTotal)}</p></section>

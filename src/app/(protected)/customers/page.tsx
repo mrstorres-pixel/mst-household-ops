@@ -1,43 +1,125 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
-import { createCustomer } from "@/app/actions";
+import { CustomerCreateForm } from "@/components/customer-create-form";
 import { PageHeader } from "@/components/page-header";
-import { SubmitButton } from "@/components/submit-button";
-import { listCustomers } from "@/lib/data";
+import { PageNotice } from "@/components/page-notice";
+import { listCustomerDirectory, type CustomerFilterStatus, type CustomerSortKey } from "@/lib/data";
 import { money } from "@/lib/format";
 
-export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ q?: string; error?: string }> }) {
+type CustomerSearchParams = {
+  q?: string;
+  status?: CustomerFilterStatus;
+  sort?: CustomerSortKey;
+  dir?: "asc" | "desc";
+  page?: string;
+  pageSize?: string;
+  error?: string;
+  success?: string;
+};
+
+const statusOptions: Array<{ value: CustomerFilterStatus; label: string }> = [
+  { value: "all", label: "All active" },
+  { value: "with_balance", label: "With balance" },
+  { value: "zero_balance", label: "Zero balance" },
+  { value: "credit_balance", label: "Credit balance" }
+];
+
+function makeHref(params: CustomerSearchParams, updates: Record<string, string | number | undefined>) {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value && !["error", "success"].includes(key)) next.set(key, String(value));
+  }
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined || value === "") next.delete(key);
+    else next.set(key, String(value));
+  }
+  const query = next.toString();
+  return query ? `/customers?${query}` : "/customers";
+}
+
+function SortLink({ label, sortKey, params }: { label: string; sortKey: CustomerSortKey; params: CustomerSearchParams }) {
+  const active = params.sort === sortKey || (!params.sort && sortKey === "name");
+  const nextDir = active && params.dir !== "desc" ? "desc" : "asc";
+  const marker = active ? (params.dir === "desc" ? " ↓" : " ↑") : "";
+  return (
+    <Link className="font-bold text-[color:var(--muted-foreground)] hover:text-[color:var(--primary)]" href={makeHref(params, { sort: sortKey, dir: nextDir, page: 1 })}>
+      {label}{marker}
+    </Link>
+  );
+}
+
+function balanceBadge(balance: number) {
+  if (balance > 0) return { label: "Receivable", className: "border-amber-200 bg-amber-50 text-amber-800" };
+  if (balance < 0) return { label: "Credit", className: "border-blue-200 bg-blue-50 text-blue-800" };
+  return { label: "Clear", className: "border-green-200 bg-green-50 text-green-800" };
+}
+
+export default async function CustomersPage({ searchParams }: { searchParams: Promise<CustomerSearchParams> }) {
   const params = await searchParams;
-  const customers = await listCustomers(params.q);
+  const page = Math.max(1, Number(params.page ?? 1));
+  const pageSize = Math.min(100, Math.max(10, Number(params.pageSize ?? 25)));
+  const directory = await listCustomerDirectory({
+    q: params.q,
+    status: params.status ?? "all",
+    sort: params.sort ?? "name",
+    direction: params.dir ?? "asc",
+    page,
+    pageSize
+  });
+  const start = directory.total ? (directory.page - 1) * directory.pageSize + 1 : 0;
+  const end = Math.min(directory.total, directory.page * directory.pageSize);
+  const pageBalance = directory.customers.reduce((total, customer) => total + Number(customer.balance ?? 0), 0);
 
   return (
     <>
-      <PageHeader title="Customers" description="Customer records, sub-balances, templates, and total running balance." />
-      {params.error ? <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{params.error}</p> : null}
-      <section className="grid gap-5 lg:grid-cols-[360px_1fr]">
-        <form action={createCustomer} className="card grid gap-4 p-5">
-          <h3 className="text-xl font-bold">Add Customer</h3>
-          <div className="field"><label>Name</label><input className="input" name="name" required /></div>
-          <div className="field"><label>Account Code</label><input className="input" name="account_code" /></div>
-          <div className="field"><label>Phone</label><input className="input" name="phone" /></div>
-          <div className="field"><label>Address</label><textarea className="input" name="address" rows={3} /></div>
-          <div className="field"><label>Sub-balances</label><input className="input" name="subaccounts" placeholder="Main, Branch 1, Branch 2" /></div>
-          <SubmitButton pendingText="Creating..."><Plus className="h-4 w-4" />Create</SubmitButton>
+      <PageHeader title="Customers" description={`Showing ${start}-${end} of ${directory.total} customers. Page balance: ${money(pageBalance)}`} />
+      <PageNotice error={params.error} success={params.success} />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <form className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_110px_auto]">
+          <input className="input" name="q" placeholder="Search customer name" defaultValue={params.q ?? ""} />
+          <select className="input" name="status" defaultValue={params.status ?? "all"}>
+            {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <select className="input" name="pageSize" defaultValue={String(pageSize)}>
+            {[25, 50, 100].map((size) => <option key={size} value={size}>{size}/page</option>)}
+          </select>
+          <button className="btn" type="submit">Filter</button>
         </form>
+        <CustomerCreateForm />
+      </div>
+      <section>
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Balance</th><th>Open</th></tr></thead>
+            <thead>
+              <tr>
+                <th><SortLink label="Customer" sortKey="name" params={params} /></th>
+                <th>Status</th>
+                <th><SortLink label="Balance" sortKey="balance" params={params} /></th>
+                <th>Open</th>
+              </tr>
+            </thead>
             <tbody>
-              {customers.map((customer) => (
-                <tr key={customer.customer_id}>
-                  <td>{customer.name}</td>
-                  <td>{money(customer.balance)}</td>
-                  <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>View</Link></td>
-                </tr>
-              ))}
-              {!customers.length ? <tr><td colSpan={3}>No customers yet.</td></tr> : null}
+              {directory.customers.map((customer) => {
+                const balance = Number(customer.balance ?? 0);
+                const badge = balanceBadge(balance);
+                return (
+                  <tr key={customer.customer_id}>
+                    <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>{customer.name}</Link></td>
+                    <td><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${badge.className}`}>{badge.label}</span></td>
+                    <td>{money(balance)}</td>
+                    <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>View Details</Link></td>
+                  </tr>
+                );
+              })}
+              {!directory.customers.length ? <tr><td colSpan={4}>No customers match these filters.</td></tr> : null}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-[color:var(--muted-foreground)]">Page {directory.page} of {directory.pageCount}</p>
+          <div className="flex gap-2">
+            <Link className="btn btn-secondary" href={makeHref(params, { page: Math.max(1, directory.page - 1) })}>Previous</Link>
+            <Link className="btn btn-secondary" href={makeHref(params, { page: Math.min(directory.pageCount, directory.page + 1) })}>Next</Link>
+          </div>
         </div>
       </section>
     </>

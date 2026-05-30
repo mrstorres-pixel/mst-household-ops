@@ -6,6 +6,8 @@ export type Row = Record<string, unknown>;
 
 export type InventorySortKey = "name" | "sku" | "supplier" | "category" | "quantity" | "price" | "cost" | "value";
 export type InventoryFilterStatus = "all" | "in_stock" | "low_stock" | "out_of_stock" | "missing_sku" | "no_supplier" | "no_category" | "missing_cost";
+export type CustomerSortKey = "name" | "balance";
+export type CustomerFilterStatus = "all" | "with_balance" | "zero_balance" | "credit_balance";
 
 export type InventoryListOptions = {
   q?: string;
@@ -13,6 +15,15 @@ export type InventoryListOptions = {
   supplierId?: string;
   status?: InventoryFilterStatus;
   sort?: InventorySortKey;
+  direction?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+};
+
+export type CustomerDirectoryOptions = {
+  q?: string;
+  status?: CustomerFilterStatus;
+  sort?: CustomerSortKey;
   direction?: "asc" | "desc";
   page?: number;
   pageSize?: number;
@@ -56,6 +67,46 @@ export async function listCustomers(search?: string) {
   if (search) query = query.ilike("name", `%${search}%`);
   const { data } = await query;
   return data ?? [];
+}
+
+export async function listCustomerDirectory(options: CustomerDirectoryOptions = {}) {
+  noStore();
+  const page = Math.max(1, Number(options.page ?? 1));
+  const pageSize = Math.min(100, Math.max(10, Number(options.pageSize ?? 25)));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  const direction = options.direction === "desc" ? "desc" : "asc";
+
+  if (!hasSupabaseEnv()) {
+    return { customers: [], total: 0, page, pageSize, pageCount: 1 };
+  }
+
+  const supabase = await createClient();
+  let query = supabase.from("customer_balances").select("*", { count: "exact" });
+  if (options.q) query = query.ilike("name", `%${options.q}%`);
+
+  switch (options.status) {
+    case "with_balance":
+      query = query.gt("balance", 0);
+      break;
+    case "zero_balance":
+      query = query.eq("balance", 0);
+      break;
+    case "credit_balance":
+      query = query.lt("balance", 0);
+      break;
+  }
+
+  if (options.sort === "balance") {
+    query = query.order("balance", { ascending: direction === "asc" }).order("name");
+  } else {
+    query = query.order("name", { ascending: direction === "asc" });
+  }
+
+  const { data, count } = await query.range(from, to);
+  const customers = data ?? [];
+  const total = count ?? customers.length;
+  return { customers, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
 export async function getCustomer(id: string) {

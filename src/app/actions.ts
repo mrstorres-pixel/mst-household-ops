@@ -124,18 +124,21 @@ export async function createCustomer(formData: FormData) {
     });
 
   const { data, error } = await supabase.from("customers").insert(parsed).select("id").single();
-  if (error) redirect(`/customers?error=${encodeURIComponent(error.message)}`);
+  if (error) pageError("/customers", `Customer could not be created: ${errorMessage(error)}`);
 
   const subaccounts = text(formData, "subaccounts")
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean)
     .map((name) => ({ customer_id: data.id, name }));
-  if (subaccounts.length) await supabase.from("customer_subaccounts").insert(subaccounts);
+  if (subaccounts.length) {
+    const { error: subaccountError } = await supabase.from("customer_subaccounts").insert(subaccounts);
+    if (subaccountError) pageError(`/customers/${data.id}`, `Customer was created, but sub-balances could not be saved: ${errorMessage(subaccountError)}`);
+  }
   await writeAudit(supabase, "create", "customer", data.id, `Created customer ${parsed.name}`);
 
   revalidatePath("/customers");
-  redirect(`/customers/${data.id}`);
+  pageSuccess(`/customers/${data.id}`, `Created customer: ${parsed.name}`);
 }
 
 export async function updateCustomer(formData: FormData) {
@@ -151,20 +154,22 @@ export async function updateCustomer(formData: FormData) {
       notes: text(formData, "notes") || null
     })
     .eq("id", customerId);
-  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  if (error) pageError(`/customers/${customerId}`, `Customer could not be updated: ${errorMessage(error)}`);
   await writeAudit(supabase, "update", "customer", customerId, `Updated customer ${text(formData, "name")}`);
   revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, "Customer updated.");
 }
 
 export async function addCustomerSubaccount(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");
   const name = text(formData, "name");
-  if (!name) return;
+  if (!name) pageError(`/customers/${customerId}`, "Sub-balance name is required.");
   const { error } = await supabase.from("customer_subaccounts").insert({ customer_id: customerId, name });
-  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  if (error) pageError(`/customers/${customerId}`, `Sub-balance could not be added: ${errorMessage(error)}`);
   await writeAudit(supabase, "create", "customer_subaccount", customerId, `Added sub-balance ${name}`);
   revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, `Added sub-balance: ${name}`);
 }
 
 export async function removeCustomerSubaccount(formData: FormData) {
@@ -177,20 +182,23 @@ export async function removeCustomerSubaccount(formData: FormData) {
     .eq("subaccount_id", subaccountId)
     .maybeSingle();
   if (Number(balanceRow?.balance ?? 0) !== 0) {
-    redirect(`/customers/${customerId}?error=${encodeURIComponent("Only zero-balance sub-balances can be removed.")}`);
+    pageError(`/customers/${customerId}`, "Only zero-balance sub-balances can be removed.");
   }
   const { error } = await supabase.from("customer_subaccounts").delete().eq("id", subaccountId);
-  if (error) redirect(`/customers/${customerId}?error=${encodeURIComponent(error.message)}`);
+  if (error) pageError(`/customers/${customerId}`, `Sub-balance could not be removed: ${errorMessage(error)}`);
   await writeAudit(supabase, "delete", "customer_subaccount", subaccountId, "Removed customer sub-balance");
   revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, "Sub-balance removed.");
 }
 
 export async function deleteCustomer(formData: FormData) {
   const supabase = await requireSupabase();
-  await supabase.from("customers").update({ is_active: false }).eq("id", text(formData, "customer_id"));
-  await writeAudit(supabase, "delete", "customer", text(formData, "customer_id"), "Deleted customer");
+  const customerId = text(formData, "customer_id");
+  const { error } = await supabase.from("customers").update({ is_active: false }).eq("id", customerId);
+  if (error) pageError(`/customers/${customerId}`, `Customer could not be deleted: ${errorMessage(error)}`);
+  await writeAudit(supabase, "delete", "customer", customerId, "Deleted customer");
   revalidatePath("/customers");
-  redirect("/customers");
+  pageSuccess("/customers", "Customer deleted.");
 }
 
 export async function createItem(formData: FormData) {
