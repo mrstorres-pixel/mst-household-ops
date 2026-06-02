@@ -283,6 +283,35 @@ export async function deleteCustomer(formData: FormData) {
   pageSuccess("/customers", "Customer deleted.");
 }
 
+export async function recordCustomerOpeningBalance(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const subaccountId = text(formData, "subaccount_id") || null;
+  const direction = text(formData, "direction");
+  const amount = asNumber(formData.get("amount"));
+  const entryDate = text(formData, "entry_date") || new Date().toISOString().slice(0, 10);
+  const notes = text(formData, "notes");
+  if (!customerId) pageError("/customers", "Select a customer before recording an opening balance.");
+  if (amount <= 0) pageError(`/customers/${customerId}`, "Opening balance amount must be greater than zero.");
+  if (!["customer_owes", "customer_credit"].includes(direction)) pageError(`/customers/${customerId}`, "Select a valid opening balance type.");
+
+  const description = notes || (direction === "customer_owes" ? "Opening balance from previous records" : "Opening credit from previous records");
+  const { error } = await supabase.from("customer_ledger_entries").insert({
+    customer_id: customerId,
+    subaccount_id: subaccountId,
+    entry_type: "opening_balance",
+    description,
+    debit: direction === "customer_owes" ? amount : 0,
+    credit: direction === "customer_credit" ? amount : 0,
+    entry_date: entryDate
+  });
+  if (error) pageError(`/customers/${customerId}`, `Opening balance could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "customer_opening_balance", customerId, description, { amount, direction, subaccount_id: subaccountId });
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, "Customer opening balance saved.");
+}
+
 export async function createItem(formData: FormData) {
   const supabase = await requireSupabase();
   const categoryName = text(formData, "category");
@@ -1051,6 +1080,34 @@ export async function recordSupplierPayment(formData: FormData) {
   revalidatePath("/suppliers");
   if (purchaseOrderId) revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
   pageSuccess(redirectPath, "Supplier payment saved.");
+}
+
+export async function recordSupplierOpeningBalance(formData: FormData) {
+  const supabase = await requireSupabase();
+  const supplierId = text(formData, "supplier_id");
+  const direction = text(formData, "direction");
+  const amount = asNumber(formData.get("amount"));
+  const adjustmentDate = text(formData, "adjustment_date") || new Date().toISOString().slice(0, 10);
+  const notes = text(formData, "notes");
+  if (!supplierId) pageError("/suppliers", "Select a supplier before recording an opening balance.");
+  if (amount <= 0) pageError("/suppliers", "Opening balance amount must be greater than zero.");
+  if (!["we_owe_supplier", "supplier_credit"].includes(direction)) pageError("/suppliers", "Select a valid supplier opening balance type.");
+
+  const signedAmount = direction === "we_owe_supplier" ? -amount : amount;
+  const reason = notes || (direction === "we_owe_supplier" ? "Opening payable from previous records" : "Opening supplier credit from previous records");
+  const { error } = await supabase.from("supplier_adjustments").insert({
+    supplier_id: supplierId,
+    adjustment_type: "opening_balance",
+    quantity: 0,
+    amount: signedAmount,
+    reason,
+    adjustment_date: adjustmentDate
+  });
+  if (error) pageError("/suppliers", `Supplier opening balance could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "supplier_opening_balance", supplierId, reason, { amount, signed_amount: signedAmount, direction });
+  revalidatePath("/suppliers");
+  revalidatePath("/reports/daily");
+  pageSuccess("/suppliers", "Supplier opening balance saved.");
 }
 
 export async function recordSupplierAdjustment(formData: FormData) {

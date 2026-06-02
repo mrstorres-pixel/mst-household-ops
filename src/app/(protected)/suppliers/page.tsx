@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
+import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierOpeningBalance, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -42,6 +42,23 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" /></div>
             <div className="field"><label>Reference</label><input className="input" name="reference" /></div>
             <SubmitButton pendingText="Recording payment...">Record Payment</SubmitButton>
+        </form>
+        <form action={recordSupplierOpeningBalance} className="card grid gap-4 p-5">
+            <h3 className="text-xl font-bold">Old / Opening Supplier Balance</h3>
+            <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
+            <div className="field">
+              <label>Balance Type</label>
+              <select className="input" name="direction" defaultValue="we_owe_supplier">
+                <option value="we_owe_supplier">We owe supplier</option>
+                <option value="supplier_credit">Supplier credit / deduct payable</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
+              <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
+            </div>
+            <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} placeholder="Old payable balance, previous supplier statement, etc." /></div>
+            <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
         </form>
         <form action={recordSupplierAdjustment} className="card grid gap-4 p-5">
             <h3 className="text-xl font-bold">Supplier Return / Damage</h3>

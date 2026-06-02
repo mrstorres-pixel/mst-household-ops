@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
-import { addCustomerSubaccount, deleteCustomer, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
+import { addCustomerSubaccount, deleteCustomer, recordCustomerOpeningBalance, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
 import { getCustomer, listItems } from "@/lib/data";
-import { money } from "@/lib/format";
+import { money, todayISO } from "@/lib/format";
 
 export default async function CustomerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string; success?: string }> }) {
   const { id } = await params;
@@ -43,6 +43,30 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
             <h3 className="text-xl font-bold text-red-700">Delete Customer</h3>
             <p className="text-sm text-[color:var(--muted-foreground)]">This hides the customer from active lists while keeping historical invoices and ledger records intact.</p>
             <ConfirmSubmitButton pendingText="Deleting..." title="Delete customer?" message="This hides the customer from active lists. Historical invoices, payments, and ledger records are kept." confirmLabel="Delete Customer">Delete Customer</ConfirmSubmitButton>
+          </form>
+          <form action={recordCustomerOpeningBalance} className="card grid gap-4 p-5">
+            <input type="hidden" name="customer_id" value={id} />
+            <h3 className="text-xl font-bold">Old / Opening Balance</h3>
+            <div className="field">
+              <label>Balance Type</label>
+              <select className="input" name="direction" defaultValue="customer_owes">
+                <option value="customer_owes">Customer owes us</option>
+                <option value="customer_credit">Customer has credit</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Sub-balance</label>
+              <select className="input" name="subaccount_id">
+                <option value="">Main / no sub-balance</option>
+                {data.subaccounts.map((sub) => <option key={sub.subaccount_id} value={sub.subaccount_id}>{sub.name}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
+              <div className="field"><label>Date</label><input className="input" name="entry_date" type="date" defaultValue={todayISO()} /></div>
+            </div>
+            <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} placeholder="Old account balance, previous ledger, etc." /></div>
+            <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
           </form>
           <div className="card p-5">
             <h3 className="text-xl font-bold">Sub-balances</h3>
