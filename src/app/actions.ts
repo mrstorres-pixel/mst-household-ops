@@ -1240,6 +1240,31 @@ export async function recordSupplierPurchase(formData: FormData) {
   if (!lines.length) pageError("/suppliers", "Add at least one supplier invoice item with quantity greater than zero.");
   if (lines.some((line) => line.unit_cost < 0)) pageError("/suppliers", "Supplier invoice unit cost cannot be negative.");
 
+  const deductionTypes = formData.getAll("supplier_deduction_type").map(String);
+  const deductionItemIds = formData.getAll("supplier_deduction_item_id").map(String);
+  const deductionQuantities = formData.getAll("supplier_deduction_quantity").map(asNumber);
+  const deductionAmounts = formData.getAll("supplier_deduction_amount").map(asNumber);
+  const deductionReasons = formData.getAll("supplier_deduction_reason").map(String);
+  const deductionDrafts = deductionTypes.map((deductionType, index) => {
+    const type = deductionType === "damage" || deductionType === "credit" ? deductionType : "return";
+    return {
+      type,
+      item_id: deductionItemIds[index] || null,
+      quantity: deductionQuantities[index] || 0,
+      amount: deductionAmounts[index] || 0,
+      reason: deductionReasons[index]?.trim() || `Supplier invoice ${type}`
+    };
+  });
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
+    pageError("/suppliers", "Supplier return, damage, and credit values cannot be negative.");
+  }
+  const deductions = deductionDrafts.filter((deduction) => deduction.amount > 0);
+  if (deductions.some((deduction) => deduction.quantity > 0 && !deduction.item_id)) {
+    pageError("/suppliers", "Supplier deductions with quantity need an item so inventory can be tracked.");
+  }
+  const deductionsTotal = deductions.reduce((sum, deduction) => sum + deduction.amount, 0);
+  if (deductionsTotal > total) pageError("/suppliers", "Supplier invoice deductions cannot be higher than the supplier invoice total.");
+
   const { data: purchases, error: purchaseError } = await supabase
     .from("purchase_orders")
     .insert(lines)
@@ -1258,7 +1283,7 @@ export async function recordSupplierPurchase(formData: FormData) {
     const { error: attachmentError } = await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).in("id", postedPurchases.map((purchase) => purchase.id));
     if (attachmentError) pageError("/suppliers", `Supplier invoice attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
-  await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, line_count: postedPurchases.length, order_date: orderDate });
+  await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, deductions_total: deductionsTotal, line_count: postedPurchases.length, order_date: orderDate });
   const { error: movementError } = await supabase.from("inventory_movements").insert(
     postedPurchases.map((purchase) => ({
       item_id: purchase.item_id,
@@ -1271,8 +1296,44 @@ export async function recordSupplierPurchase(formData: FormData) {
     }))
   );
   if (movementError) pageError("/suppliers", `Supplier stock movement could not be saved: ${errorMessage(movementError)}`);
+
+  if (deductions.length) {
+    const { data: adjustments, error: adjustmentError } = await supabase
+      .from("supplier_adjustments")
+      .insert(deductions.map((deduction) => ({
+        supplier_id: supplierId,
+        purchase_order_id: firstPurchaseId,
+        item_id: deduction.item_id,
+        adjustment_type: deduction.type,
+        quantity: deduction.quantity,
+        amount: deduction.amount,
+        reason: `${supplierInvoiceNumber || "Supplier invoice"}: ${deduction.reason}`,
+        adjustment_date: orderDate
+      })))
+      .select("id, item_id, quantity, adjustment_type, amount");
+    if (adjustmentError) pageError("/suppliers", `Supplier invoice deductions could not be saved: ${errorMessage(adjustmentError)}`);
+
+    const stockAdjustments = (adjustments ?? []).filter((adjustment) => adjustment.item_id && Number(adjustment.quantity ?? 0) > 0);
+    if (stockAdjustments.length) {
+      const { error: deductionMovementError } = await supabase.from("inventory_movements").insert(
+        stockAdjustments.map((adjustment) => ({
+          item_id: adjustment.item_id,
+          movement_type: adjustment.adjustment_type === "damage" ? "damage" : "adjustment",
+          quantity_delta: -Number(adjustment.quantity ?? 0),
+          unit_cost: Number(adjustment.amount ?? 0),
+          reference_type: "supplier_adjustment",
+          reference_id: adjustment.id,
+          notes: `${supplierInvoiceNumber || "Supplier invoice"} ${adjustment.adjustment_type}`,
+          movement_date: orderDate
+        }))
+      );
+      if (deductionMovementError) pageError("/suppliers", `Supplier deduction stock movement could not be saved: ${errorMessage(deductionMovementError)}`);
+    }
+  }
+
   revalidatePath("/suppliers");
   revalidatePath("/inventory");
+  revalidatePath("/reports/daily");
   pageSuccess("/suppliers", `Supplier invoice saved with ${postedPurchases.length} item line${postedPurchases.length === 1 ? "" : "s"}.`);
 }
 

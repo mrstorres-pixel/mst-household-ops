@@ -4,6 +4,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
+import { SupplierInvoiceDeductions } from "@/components/supplier-invoice-deductions";
 import { SupplierInvoiceLines } from "@/components/supplier-invoice-lines";
 import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
@@ -33,6 +34,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
               <div className="field"><label>Invoice Date</label><input className="input" name="order_date" type="date" defaultValue={todayISO()} /></div>
             </div>
             <SupplierInvoiceLines items={items} />
+            <SupplierInvoiceDeductions items={items} />
             <div className="field"><label>Invoice Image / Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
             <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
         </form>
@@ -61,7 +63,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
         </form>
         <form action={recordSupplierAdjustment} className="card grid gap-4 p-5">
-            <h3 className="text-xl font-bold">Supplier Return / Damage</h3>
+            <h3 className="text-xl font-bold">Separate Supplier Return / Damage / Credit</h3>
             <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
             <div className="field"><label>Type</label><select className="input" name="adjustment_type"><option value="return">Return</option><option value="damage">Damage</option><option value="credit">Credit</option></select></div>
             <div className="field"><label>Item</label><select className="input" name="item_id"><option value="">No item</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
@@ -72,7 +74,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
             <div className="field"><label>Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
             <div className="field"><label>Reason</label><textarea className="input" name="reason" rows={2} /></div>
-            <SubmitButton pendingText="Recording adjustment...">Record Adjustment</SubmitButton>
+            <SubmitButton pendingText="Recording adjustment...">Record Separate Adjustment</SubmitButton>
         </form>
         <div className="card table-wrap">
           <table>
