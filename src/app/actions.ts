@@ -772,6 +772,126 @@ export async function createInvoice(formData: FormData) {
   redirect(`/invoices/${invoice.id}/print`);
 }
 
+export async function updatePostedInvoice(formData: FormData) {
+  const supabase = await requireSupabase();
+  const invoiceId = text(formData, "invoice_id");
+  if (!invoiceId) pageError("/invoices/new", "Select an invoice before saving changes.");
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, customer_id, subaccount_id, invoice_date")
+    .eq("id", invoiceId)
+    .single();
+  if (invoiceError || !invoice) pageError(`/invoices/${invoiceId}/edit`, `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
+
+  const { data: existingLines, error: linesError } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("id");
+  if (linesError) pageError(`/invoices/${invoiceId}/edit`, `Invoice lines could not be loaded: ${errorMessage(linesError)}`);
+
+  const lineIds = formData.getAll("line_id").map(String);
+  const descriptions = formData.getAll("description").map(String);
+  const quantities = formData.getAll("quantity").map(asNumber);
+  const prices = formData.getAll("unit_price").map(asNumber);
+  const existingById = new Map((existingLines ?? []).map((line) => [line.id, line]));
+  const updates = lineIds.map((lineId, index) => {
+    const existing = existingById.get(lineId);
+    if (!existing) return null;
+    const quantity = quantities[index];
+    const unitPrice = prices[index];
+    return {
+      id: lineId,
+      item_id: existing.item_id,
+      old_quantity: Number(existing.quantity ?? 0),
+      description: descriptions[index] || existing.description || "Item",
+      quantity,
+      unit_price: unitPrice,
+      line_total: quantity * unitPrice
+    };
+  }).filter(Boolean) as Array<{
+    id: string;
+    item_id: string;
+    old_quantity: number;
+    description: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+  }>;
+
+  if (!updates.length) pageError(`/invoices/${invoiceId}/edit`, "No invoice lines were found to update.");
+  if (updates.some((line) => line.quantity <= 0)) pageError(`/invoices/${invoiceId}/edit`, "Invoice quantities must be greater than zero.");
+  if (updates.some((line) => line.unit_price < 0)) pageError(`/invoices/${invoiceId}/edit`, "Invoice prices cannot be negative.");
+
+  const subtotal = updates.reduce((sum, line) => sum + line.line_total, 0);
+  if (subtotal <= 0) pageError(`/invoices/${invoiceId}/edit`, "Invoice total must be greater than zero.");
+
+  for (const line of updates) {
+    const { error } = await supabase
+      .from("invoice_items")
+      .update({
+        description: line.description,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+        line_total: line.line_total
+      })
+      .eq("id", line.id);
+    if (error) pageError(`/invoices/${invoiceId}/edit`, `Invoice line could not be updated: ${errorMessage(error)}`);
+  }
+
+  const { error: invoiceUpdateError } = await supabase
+    .from("invoices")
+    .update({ subtotal, total: subtotal })
+    .eq("id", invoiceId);
+  if (invoiceUpdateError) pageError(`/invoices/${invoiceId}/edit`, `Invoice total could not be updated: ${errorMessage(invoiceUpdateError)}`);
+
+  const { error: ledgerError } = await supabase
+    .from("customer_ledger_entries")
+    .update({ debit: subtotal, credit: 0 })
+    .eq("invoice_id", invoiceId)
+    .eq("entry_type", "invoice");
+  if (ledgerError) pageError(`/invoices/${invoiceId}/edit`, `Customer balance entry could not be updated: ${errorMessage(ledgerError)}`);
+
+  const inventoryAdjustments = updates
+    .map((line) => ({
+      item_id: line.item_id,
+      movement_type: "adjustment",
+      quantity_delta: line.old_quantity - line.quantity,
+      reference_type: "invoice_correction",
+      reference_id: invoiceId,
+      notes: `Correction for invoice ${invoice.invoice_number}`
+    }))
+    .filter((movement) => movement.quantity_delta !== 0);
+  if (inventoryAdjustments.length) {
+    const { error: movementError } = await supabase.from("inventory_movements").insert(inventoryAdjustments);
+    if (movementError) pageError(`/invoices/${invoiceId}/edit`, `Inventory correction could not be saved: ${errorMessage(movementError)}`);
+  }
+
+  const { data: cashSaleRows } = await supabase.from("cash_sales").select("id").eq("invoice_id", invoiceId);
+  if (cashSaleRows?.length) {
+    await supabase.from("cash_sales").update({ amount: subtotal }).eq("invoice_id", invoiceId);
+    await supabase
+      .from("payments")
+      .update({ amount: subtotal })
+      .eq("customer_id", invoice.customer_id)
+      .eq("reference", invoice.invoice_number)
+      .eq("method", "cash");
+    await supabase
+      .from("customer_ledger_entries")
+      .update({ credit: subtotal, debit: 0 })
+      .eq("invoice_id", invoiceId)
+      .eq("entry_type", "cash_sale_payment");
+  }
+
+  await writeAudit(supabase, "update", "invoice", invoiceId, `Edited invoice ${invoice.invoice_number}`, { total: subtotal, line_count: updates.length });
+  revalidatePath(`/invoices/${invoiceId}/print`);
+  revalidatePath(`/invoices/${invoiceId}/edit`);
+  revalidatePath(`/customers/${invoice.customer_id}`);
+  revalidatePath("/inventory");
+  pageSuccess(`/invoices/${invoiceId}/edit`, "Invoice updated and inventory correction posted.");
+}
+
 export async function recordPayment(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");
