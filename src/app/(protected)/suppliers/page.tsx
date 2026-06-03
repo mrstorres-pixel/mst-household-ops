@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createSupplier, deleteSupplier, recordSupplierAdjustment, recordSupplierOpeningBalance, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
+import { createSupplier, deleteSupplier, deleteSupplierInvoice, recordSupplierAdjustment, recordSupplierOpeningBalance, recordSupplierPayment, recordSupplierPurchase, updateSupplier } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -108,7 +108,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <h3 className="font-bold">Recent Supplier Invoices</h3>
           </div>
           <table>
-            <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Open</th></tr></thead>
+            <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Open</th><th>Edit / Delete</th></tr></thead>
             <tbody>
               {supplierInvoices.map((invoice) => (
                 <tr key={invoice.id}>
@@ -118,9 +118,18 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
                   <td>{invoice.items?.name}</td>
                   <td>{money(invoice.total)}</td>
                   <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <Link className="btn btn-secondary" href={`/suppliers/invoices/${invoice.id}/edit`}>Edit</Link>
+                      <form action={deleteSupplierInvoice}>
+                        <input type="hidden" name="purchase_order_id" value={invoice.id} />
+                        <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message="This deletes all item lines under this supplier invoice number, reverses related stock movement, removes linked supplier payments/adjustments, and logs the deletion." confirmLabel="Delete Supplier Invoice">Delete</ConfirmSubmitButton>
+                      </form>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {!supplierInvoices.length ? <tr><td colSpan={6}>No supplier invoices yet.</td></tr> : null}
+              {!supplierInvoices.length ? <tr><td colSpan={7}>No supplier invoices yet.</td></tr> : null}
             </tbody>
           </table>
         </section>

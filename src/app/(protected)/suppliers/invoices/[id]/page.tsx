@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
-import { recordSupplierAdjustment, recordSupplierPayment } from "@/app/actions";
+import Link from "next/link";
+import { deleteSupplierInvoice, recordSupplierAdjustment, recordSupplierPayment } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
@@ -18,28 +20,55 @@ export default async function SupplierInvoiceDetailPage({
   const data = await getSupplierInvoice(id);
   if (!data) notFound();
   const invoice = data.invoice;
+  const invoiceLabel = invoice.supplier_invoice_number ?? invoice.id.slice(0, 8);
 
   return (
     <>
       <PageHeader
-        title={`Supplier Invoice ${invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}`}
-        description={`${invoice.suppliers?.name ?? "Supplier"} balance on this invoice: ${money(data.remaining)}`}
+        title={`Supplier Invoice ${invoiceLabel}`}
+        description={`${invoice.suppliers?.name ?? "Supplier"} balance on this invoice number: ${money(data.remaining)}`}
       />
       <PageNotice error={notices.error} success={notices.success} />
+      <div className="mb-5 flex flex-wrap gap-2">
+        <Link className="btn btn-secondary" href={`/suppliers/invoices/${invoice.id}/edit`}>Edit Invoice Line</Link>
+        <Link className="btn btn-secondary" href="/suppliers">Back to Suppliers</Link>
+        <form action={deleteSupplierInvoice}>
+          <input type="hidden" name="purchase_order_id" value={invoice.id} />
+          <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message="This deletes all item lines under this supplier invoice number, reverses related stock movement, removes linked supplier payments/adjustments, and logs the deletion." confirmLabel="Delete Supplier Invoice">Delete Supplier Invoice</ConfirmSubmitButton>
+        </form>
+      </div>
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <section className="grid gap-5">
           <div className="card p-5">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
               <p><strong>Supplier:</strong><br />{invoice.suppliers?.name}</p>
-              <p><strong>Item:</strong><br />{invoice.items?.name}</p>
               <p><strong>Date:</strong><br />{invoice.order_date}</p>
-              <p><strong>Qty:</strong><br />{invoice.quantity}</p>
-              <p><strong>Unit Cost:</strong><br />{money(invoice.unit_cost)}</p>
-              <p><strong>Total:</strong><br />{money(invoice.total)}</p>
+              <p><strong>Invoice Total:</strong><br />{money(data.invoiceTotal)}</p>
+              <p><strong>Remaining:</strong><br />{money(data.remaining)}</p>
+              <p><strong>Payments:</strong><br />{money(data.paid)}</p>
+              <p><strong>Returns / Credits:</strong><br />{money(data.adjusted)}</p>
+              <p><strong>Line Count:</strong><br />{data.relatedLines.length}</p>
+              <p><strong>Attachment:</strong><br />{invoice.app_files?.id ? "Available" : "-"}</p>
             </div>
             {invoice.app_files?.id ? (
               <a className="btn btn-secondary mt-4" href={`/attachments/${invoice.app_files.id}`} target="_blank">View attachment</a>
             ) : null}
+          </div>
+          <div className="card table-wrap">
+            <table>
+              <thead><tr><th>Item</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th>Edit</th></tr></thead>
+              <tbody>
+                {data.relatedLines.map((line) => (
+                  <tr key={line.id}>
+                    <td>{line.items?.name}</td>
+                    <td>{line.quantity}</td>
+                    <td>{money(line.unit_cost)}</td>
+                    <td>{money(line.total)}</td>
+                    <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${line.id}/edit`}>Edit</Link></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           <div className="card table-wrap">
             <table>

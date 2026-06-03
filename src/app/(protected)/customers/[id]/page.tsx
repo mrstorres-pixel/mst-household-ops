@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { addCustomerSubaccount, adjustCustomerSubaccountBalance, deleteCustomer, recordCustomerOpeningBalance, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer, updateCustomerSubaccount } from "@/app/actions";
+import { addCustomerSubaccount, adjustCustomerSubaccountBalance, deleteCustomer, deleteCustomerInvoice, recordCustomerOpeningBalance, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer, updateCustomerSubaccount } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -161,10 +161,26 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
           </div>
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Invoice</th><th>Status</th><th>Total</th></tr></thead>
+              <thead><tr><th>Date</th><th>Invoice</th><th>Status</th><th>Total</th><th>Edit / Delete</th></tr></thead>
               <tbody>
-                {data.invoices.map((row) => <tr key={row.invoice_number}><td>{row.invoice_date}</td><td>{row.invoice_number}</td><td>{row.status}</td><td>{money(row.total)}</td></tr>)}
-                {!data.invoices.length ? <tr><td colSpan={4}>No invoices yet.</td></tr> : null}
+                {data.invoices.map((row) => (
+                  <tr key={row.invoice_number}>
+                    <td>{row.invoice_date}</td>
+                    <td><Link className="font-bold text-[color:var(--primary)]" href={`/invoices/${row.id}/print`}>{row.invoice_number}</Link></td>
+                    <td>{row.status}</td>
+                    <td>{money(row.total)}</td>
+                    <td>
+                      <div className="flex flex-wrap gap-2">
+                        <Link className="btn btn-secondary" href={`/invoices/${row.id}/edit`}>Edit</Link>
+                        <form action={deleteCustomerInvoice}>
+                          <input type="hidden" name="invoice_id" value={row.id} />
+                          <ConfirmSubmitButton pendingText="Deleting..." title="Delete invoice?" message="This removes the invoice, reverses related stock movement, and logs the deletion. Use this only for mistaken or duplicate invoices." confirmLabel="Delete Invoice">Delete</ConfirmSubmitButton>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!data.invoices.length ? <tr><td colSpan={5}>No invoices yet.</td></tr> : null}
               </tbody>
             </table>
           </div>

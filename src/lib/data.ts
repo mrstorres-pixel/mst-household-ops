@@ -129,7 +129,7 @@ export async function getCustomer(id: string) {
       .limit(50),
     supabase
       .from("invoices")
-      .select("invoice_number, invoice_date, total, status")
+      .select("id, invoice_number, invoice_date, total, status")
       .eq("customer_id", id)
       .order("invoice_date", { ascending: false })
       .limit(20),
@@ -424,31 +424,50 @@ export async function getSupplierInvoice(id: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [{ data: invoice }, { data: payments }, { data: adjustments }] = await Promise.all([
-    supabase
-      .from("purchase_orders")
-      .select("*, suppliers(*), items(name, sku), app_files(id, file_name)")
-      .eq("id", id)
-      .maybeSingle(),
+  const { data: invoice } = await supabase
+    .from("purchase_orders")
+    .select("*, suppliers(*), items(name, sku), app_files(id, file_name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (!invoice) return null;
+
+  let relatedQuery = supabase
+    .from("purchase_orders")
+    .select("*, suppliers(*), items(name, sku), app_files(id, file_name)")
+    .eq("supplier_id", invoice.supplier_id)
+    .order("created_at");
+  if (invoice.supplier_invoice_number) {
+    relatedQuery = relatedQuery.eq("supplier_invoice_number", invoice.supplier_invoice_number);
+  } else {
+    relatedQuery = relatedQuery.eq("id", id);
+  }
+
+  const { data: relatedLines } = await relatedQuery;
+  const purchaseIds = (relatedLines?.length ? relatedLines : [invoice]).map((line) => String(line.id));
+  const [{ data: payments }, { data: adjustments }] = await Promise.all([
     supabase
       .from("supplier_payments")
       .select("*")
-      .eq("purchase_order_id", id)
+      .in("purchase_order_id", purchaseIds)
       .order("payment_date", { ascending: false }),
     supabase
       .from("supplier_adjustments")
       .select("*, items(name, sku), app_files(id, file_name)")
-      .eq("purchase_order_id", id)
+      .in("purchase_order_id", purchaseIds)
       .order("adjustment_date", { ascending: false })
   ]);
-  if (!invoice) return null;
   const paid = (payments ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
   const adjusted = (adjustments ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const invoiceTotal = (relatedLines ?? [invoice]).reduce((sum, row) => sum + Number(row.total ?? 0), 0);
   return {
     invoice,
+    relatedLines: relatedLines ?? [invoice],
+    invoiceTotal,
+    paid,
+    adjusted,
     payments: payments ?? [],
     adjustments: adjustments ?? [],
-    remaining: Number(invoice.total ?? 0) - paid - adjusted
+    remaining: invoiceTotal - paid - adjusted
   };
 }
 

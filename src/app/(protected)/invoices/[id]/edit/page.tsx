@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { updatePostedInvoice } from "@/app/actions";
+import { deleteCustomerInvoice, updatePostedInvoice } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
@@ -25,6 +26,10 @@ export default async function EditInvoicePage({
       <div className="mb-5 flex gap-2">
         <Link className="btn btn-secondary" href={`/invoices/${id}/print`}>Back to Print View</Link>
         <Link className="btn btn-secondary" href={`/customers/${data.invoice.customer_id}`}>Open Customer</Link>
+        <form action={deleteCustomerInvoice}>
+          <input type="hidden" name="invoice_id" value={id} />
+          <ConfirmSubmitButton pendingText="Deleting..." title="Delete invoice?" message="This removes the invoice, reverses related stock movement, and logs the deletion. Use this only for mistaken or duplicate invoices." confirmLabel="Delete Invoice">Delete Invoice</ConfirmSubmitButton>
+        </form>
       </div>
       <form action={updatePostedInvoice} className="grid gap-5">
         <input type="hidden" name="invoice_id" value={id} />

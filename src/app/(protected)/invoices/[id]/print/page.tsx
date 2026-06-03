@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { deleteCustomerInvoice } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { getInvoice } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -13,7 +15,13 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
     <main className="mx-auto max-w-4xl bg-white p-8">
       <div className="no-print mb-5 flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-[color:var(--muted-foreground)]">
         <span>Use your browser print command to print or save this invoice.</span>
-        <Link className="btn btn-secondary" href={`/invoices/${id}/edit`}>Edit Invoice</Link>
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn btn-secondary" href={`/invoices/${id}/edit`}>Edit Invoice</Link>
+          <form action={deleteCustomerInvoice}>
+            <input type="hidden" name="invoice_id" value={id} />
+            <ConfirmSubmitButton pendingText="Deleting..." title="Delete invoice?" message="This removes the invoice, reverses related stock movement, and logs the deletion. Use this only for mistaken or duplicate invoices." confirmLabel="Delete Invoice">Delete Invoice</ConfirmSubmitButton>
+          </form>
+        </div>
       </div>
       <header className="flex justify-between border-b border-black pb-5">
         <div>

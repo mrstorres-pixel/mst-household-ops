@@ -873,7 +873,7 @@ export async function updatePostedInvoice(formData: FormData) {
 
   const { data: invoice, error: invoiceError } = await supabase
     .from("invoices")
-    .select("id, invoice_number, customer_id, subaccount_id, invoice_date")
+    .select("id, invoice_number, customer_id, subaccount_id, invoice_date, returns_total")
     .eq("id", invoiceId)
     .single();
   if (invoiceError || !invoice) pageError(`/invoices/${invoiceId}/edit`, `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
@@ -920,6 +920,9 @@ export async function updatePostedInvoice(formData: FormData) {
 
   const subtotal = updates.reduce((sum, line) => sum + line.line_total, 0);
   if (subtotal <= 0) pageError(`/invoices/${invoiceId}/edit`, "Invoice total must be greater than zero.");
+  const deductionsTotal = Number(invoice.returns_total ?? 0);
+  if (deductionsTotal > subtotal) pageError(`/invoices/${invoiceId}/edit`, "Invoice subtotal cannot be lower than existing return/damage deductions.");
+  const invoiceTotal = subtotal - deductionsTotal;
 
   for (const line of updates) {
     const { error } = await supabase
@@ -936,13 +939,13 @@ export async function updatePostedInvoice(formData: FormData) {
 
   const { error: invoiceUpdateError } = await supabase
     .from("invoices")
-    .update({ subtotal, total: subtotal })
+    .update({ subtotal, total: invoiceTotal })
     .eq("id", invoiceId);
   if (invoiceUpdateError) pageError(`/invoices/${invoiceId}/edit`, `Invoice total could not be updated: ${errorMessage(invoiceUpdateError)}`);
 
   const { error: ledgerError } = await supabase
     .from("customer_ledger_entries")
-    .update({ debit: subtotal, credit: 0 })
+    .update({ debit: invoiceTotal, credit: 0 })
     .eq("invoice_id", invoiceId)
     .eq("entry_type", "invoice");
   if (ledgerError) pageError(`/invoices/${invoiceId}/edit`, `Customer balance entry could not be updated: ${errorMessage(ledgerError)}`);
@@ -964,26 +967,210 @@ export async function updatePostedInvoice(formData: FormData) {
 
   const { data: cashSaleRows } = await supabase.from("cash_sales").select("id").eq("invoice_id", invoiceId);
   if (cashSaleRows?.length) {
-    await supabase.from("cash_sales").update({ amount: subtotal }).eq("invoice_id", invoiceId);
+    await supabase.from("cash_sales").update({ amount: invoiceTotal }).eq("invoice_id", invoiceId);
     await supabase
       .from("payments")
-      .update({ amount: subtotal })
+      .update({ amount: invoiceTotal })
       .eq("customer_id", invoice.customer_id)
       .eq("reference", invoice.invoice_number)
       .eq("method", "cash");
     await supabase
       .from("customer_ledger_entries")
-      .update({ credit: subtotal, debit: 0 })
+      .update({ credit: invoiceTotal, debit: 0 })
       .eq("invoice_id", invoiceId)
       .eq("entry_type", "cash_sale_payment");
   }
 
-  await writeAudit(supabase, "update", "invoice", invoiceId, `Edited invoice ${invoice.invoice_number}`, { total: subtotal, line_count: updates.length });
+  await writeAudit(supabase, "update", "invoice", invoiceId, `Edited invoice ${invoice.invoice_number}`, { subtotal, deductions_total: deductionsTotal, total: invoiceTotal, line_count: updates.length });
   revalidatePath(`/invoices/${invoiceId}/print`);
   revalidatePath(`/invoices/${invoiceId}/edit`);
   revalidatePath(`/customers/${invoice.customer_id}`);
   revalidatePath("/inventory");
   pageSuccess(`/invoices/${invoiceId}/edit`, "Invoice updated and inventory correction posted.");
+}
+
+export async function deleteCustomerInvoice(formData: FormData) {
+  const supabase = await requireSupabase();
+  const invoiceId = text(formData, "invoice_id");
+  if (!invoiceId) pageError("/customers", "Select an invoice before deleting.");
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, customer_id")
+    .eq("id", invoiceId)
+    .single();
+  if (invoiceError || !invoice) pageError("/customers", `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
+
+  const { data: movements } = await supabase
+    .from("inventory_movements")
+    .select("item_id, quantity_delta")
+    .or(`reference_id.eq.${invoiceId},notes.ilike.${invoice.invoice_number}%`);
+  const reversals = (movements ?? [])
+    .filter((movement) => movement.item_id && Number(movement.quantity_delta ?? 0) !== 0)
+    .map((movement) => ({
+      item_id: movement.item_id,
+      movement_type: "adjustment",
+      quantity_delta: -Number(movement.quantity_delta ?? 0),
+      reference_type: "invoice_delete",
+      reference_id: invoiceId,
+      notes: `Deleted invoice ${invoice.invoice_number}`
+    }));
+  if (reversals.length) {
+    const { error: reversalError } = await supabase.from("inventory_movements").insert(reversals);
+    if (reversalError) pageError(`/invoices/${invoiceId}/edit`, `Invoice stock reversal could not be saved: ${errorMessage(reversalError)}`);
+  }
+
+  await supabase.from("payment_allocations").delete().eq("invoice_id", invoiceId);
+  await supabase.from("cash_sales").delete().eq("invoice_id", invoiceId);
+  await supabase.from("customer_ledger_entries").delete().eq("invoice_id", invoiceId);
+  await supabase.from("payments").delete().eq("customer_id", invoice.customer_id).eq("reference", invoice.invoice_number);
+  await supabase.from("returns").delete().eq("invoice_id", invoiceId);
+  const { error: deleteError } = await supabase.from("invoices").delete().eq("id", invoiceId);
+  if (deleteError) pageError(`/invoices/${invoiceId}/edit`, `Invoice could not be deleted: ${errorMessage(deleteError)}`);
+
+  await writeAudit(supabase, "delete", "invoice", invoiceId, `Deleted invoice ${invoice.invoice_number}`, {
+    customer_id: invoice.customer_id,
+    reversal_count: reversals.length
+  });
+  revalidatePath(`/customers/${invoice.customer_id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/reports/daily");
+  pageSuccess(`/customers/${invoice.customer_id}`, `Invoice ${invoice.invoice_number} deleted.`);
+}
+
+export async function updateSupplierInvoice(formData: FormData) {
+  const supabase = await requireSupabase();
+  const purchaseOrderId = text(formData, "purchase_order_id");
+  if (!purchaseOrderId) pageError("/suppliers", "Select a supplier invoice before saving.");
+
+  const { data: existing, error: existingError } = await supabase
+    .from("purchase_orders")
+    .select("id, supplier_id, item_id, quantity, unit_cost, total, supplier_invoice_number")
+    .eq("id", purchaseOrderId)
+    .single();
+  if (existingError || !existing) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice could not be loaded: ${errorMessage(existingError)}`);
+
+  const quantity = asNumber(formData.get("quantity"));
+  const unitCost = asNumber(formData.get("unit_cost"));
+  const orderDate = text(formData, "order_date") || new Date().toISOString().slice(0, 10);
+  const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
+  if (quantity <= 0) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice quantity must be greater than zero.");
+  if (unitCost < 0) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice unit cost cannot be negative.");
+
+  const { error: updateError } = await supabase
+    .from("purchase_orders")
+    .update({
+      quantity,
+      unit_cost: unitCost,
+      total: quantity * unitCost,
+      order_date: orderDate,
+      supplier_invoice_number: supplierInvoiceNumber
+    })
+    .eq("id", purchaseOrderId);
+  if (updateError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice could not be updated: ${errorMessage(updateError)}`);
+
+  const quantityDelta = quantity - Number(existing.quantity ?? 0);
+  if (quantityDelta !== 0) {
+    const { error: movementError } = await supabase.from("inventory_movements").insert({
+      item_id: existing.item_id,
+      movement_type: "adjustment",
+      quantity_delta: quantityDelta,
+      unit_cost: unitCost,
+      reference_type: "supplier_invoice_correction",
+      reference_id: purchaseOrderId,
+      notes: `Correction for supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
+      movement_date: orderDate
+    });
+    if (movementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice stock correction could not be saved: ${errorMessage(movementError)}`);
+  }
+
+  await writeAudit(supabase, "update", "supplier_invoice", purchaseOrderId, `Edited supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`, {
+    old_quantity: existing.quantity,
+    quantity,
+    unit_cost: unitCost
+  });
+  revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
+  revalidatePath(`/suppliers/invoices/${purchaseOrderId}/edit`);
+  revalidatePath("/suppliers");
+  revalidatePath("/inventory");
+  pageSuccess(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice updated.");
+}
+
+export async function deleteSupplierInvoice(formData: FormData) {
+  const supabase = await requireSupabase();
+  const purchaseOrderId = text(formData, "purchase_order_id");
+  if (!purchaseOrderId) pageError("/suppliers", "Select a supplier invoice before deleting.");
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("purchase_orders")
+    .select("id, supplier_id, supplier_invoice_number")
+    .eq("id", purchaseOrderId)
+    .single();
+  if (invoiceError || !invoice) pageError("/suppliers", `Supplier invoice could not be loaded: ${errorMessage(invoiceError)}`);
+
+  let relatedQuery = supabase
+    .from("purchase_orders")
+    .select("id, item_id, quantity, supplier_invoice_number")
+    .eq("supplier_id", invoice.supplier_id);
+  if (invoice.supplier_invoice_number) {
+    relatedQuery = relatedQuery.eq("supplier_invoice_number", invoice.supplier_invoice_number);
+  } else {
+    relatedQuery = relatedQuery.eq("id", purchaseOrderId);
+  }
+  const { data: relatedLines, error: relatedError } = await relatedQuery;
+  if (relatedError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice lines could not be loaded: ${errorMessage(relatedError)}`);
+  const lines = relatedLines ?? [];
+  const purchaseIds = lines.map((line) => line.id);
+
+  const purchaseReversals = lines
+    .filter((line) => line.item_id && Number(line.quantity ?? 0) !== 0)
+    .map((line) => ({
+      item_id: line.item_id,
+      movement_type: "adjustment",
+      quantity_delta: -Number(line.quantity ?? 0),
+      reference_type: "supplier_invoice_delete",
+      reference_id: line.id,
+      notes: `Deleted supplier invoice ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`
+    }));
+  if (purchaseReversals.length) {
+    const { error: reversalError } = await supabase.from("inventory_movements").insert(purchaseReversals);
+    if (reversalError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice stock reversal could not be saved: ${errorMessage(reversalError)}`);
+  }
+
+  if (purchaseIds.length) {
+    const { data: adjustments } = await supabase
+      .from("supplier_adjustments")
+      .select("id, item_id, quantity")
+      .in("purchase_order_id", purchaseIds);
+    const adjustmentReversals = (adjustments ?? [])
+      .filter((adjustment) => adjustment.item_id && Number(adjustment.quantity ?? 0) !== 0)
+      .map((adjustment) => ({
+        item_id: adjustment.item_id,
+        movement_type: "adjustment",
+        quantity_delta: Number(adjustment.quantity ?? 0),
+        reference_type: "supplier_adjustment_delete",
+        reference_id: adjustment.id,
+        notes: `Deleted supplier invoice adjustment ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`
+      }));
+    if (adjustmentReversals.length) {
+      const { error: adjustmentReversalError } = await supabase.from("inventory_movements").insert(adjustmentReversals);
+      if (adjustmentReversalError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier deduction stock reversal could not be saved: ${errorMessage(adjustmentReversalError)}`);
+    }
+
+    await supabase.from("supplier_payments").delete().in("purchase_order_id", purchaseIds);
+    await supabase.from("supplier_adjustments").delete().in("purchase_order_id", purchaseIds);
+    const { error: deleteError } = await supabase.from("purchase_orders").delete().in("id", purchaseIds);
+    if (deleteError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice could not be deleted: ${errorMessage(deleteError)}`);
+  }
+
+  await writeAudit(supabase, "delete", "supplier_invoice", purchaseOrderId, `Deleted supplier invoice ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`, {
+    supplier_id: invoice.supplier_id,
+    line_count: lines.length
+  });
+  revalidatePath("/suppliers");
+  revalidatePath("/inventory");
+  revalidatePath("/reports/daily");
+  pageSuccess("/suppliers", `Supplier invoice ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)} deleted.`);
 }
 
 export async function recordPayment(formData: FormData) {
