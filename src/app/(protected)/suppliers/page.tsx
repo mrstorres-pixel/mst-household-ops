@@ -12,132 +12,224 @@ import { money, todayISO } from "@/lib/format";
 export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
   const params = await searchParams;
   const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments(), listSupplierInvoices()]);
+  const supplierBalanceTotal = suppliers.reduce((sum, supplier) => sum + Number(supplier.balance ?? 0), 0);
+  const recentInvoiceTotal = supplierInvoices.reduce((sum, invoice) => sum + Number(invoice.total ?? 0), 0);
+  const recentAdjustmentTotal = adjustments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
 
   return (
     <>
-      <PageHeader title="Suppliers" description="Supplier list, purchases to order/receive, and payable balances." />
+      <PageHeader title="Suppliers" description="Supplier invoices, payable balances, payments, and after-invoice adjustments." />
       <PageNotice error={params.error} success={params.success} />
-      <div className="grid gap-5 xl:grid-cols-2">
-        <form action={createSupplier} className="card grid gap-4 p-5">
-          <h3 className="text-xl font-bold">Add Supplier</h3>
-          <div className="field"><label>Name</label><input className="input" name="name" required /></div>
-          <div className="field"><label>Contact</label><input className="input" name="contact_name" /></div>
-          <div className="field"><label>Phone</label><input className="input" name="phone" /></div>
-          <div className="field"><label>Address</label><textarea className="input" name="address" rows={2} /></div>
-          <SubmitButton pendingText="Saving supplier...">Save Supplier</SubmitButton>
-        </form>
+
+      <section className="mb-5 grid gap-3 md:grid-cols-3">
+        <div className="card p-4">
+          <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Active Suppliers</p>
+          <p className="mt-2 text-2xl font-bold">{suppliers.length}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Total Payable</p>
+          <p className="mt-2 text-2xl font-bold">{money(supplierBalanceTotal)}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Recent Credits / Deductions</p>
+          <p className="mt-2 text-2xl font-bold">{money(recentAdjustmentTotal)}</p>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <form action={recordSupplierPurchase} className="card grid gap-4 p-5">
-            <h3 className="text-xl font-bold">Supplier Invoice</h3>
-            <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="field"><label>Supplier Invoice No.</label><input className="input" name="supplier_invoice_number" /></div>
-              <div className="field"><label>Invoice Date</label><input className="input" name="order_date" type="date" defaultValue={todayISO()} /></div>
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--border)] pb-4">
+            <div>
+              <h3 className="text-xl font-bold">Post Supplier Invoice</h3>
+              <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">Use this for received supplier bills, stock-in items, and same-invoice returns, damage, or credits.</p>
             </div>
-            <SupplierInvoiceLines items={items} />
-            <SupplierInvoiceDeductions items={items} />
-            <div className="field"><label>Invoice Image / Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
-            <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
-        </form>
-        <form action={recordSupplierPayment} className="card grid gap-4 p-5">
-            <h3 className="text-xl font-bold">Supplier Payment</h3>
-            <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
-            <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" /></div>
-            <div className="field"><label>Reference</label><input className="input" name="reference" /></div>
-            <SubmitButton pendingText="Recording payment...">Record Payment</SubmitButton>
-        </form>
-        <form action={recordSupplierOpeningBalance} className="card grid gap-4 p-5">
-            <h3 className="text-xl font-bold">Old / Opening Supplier Balance</h3>
-            <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
+            <p className="rounded-md bg-[color:var(--muted)] px-3 py-2 text-sm font-bold">Recent posted: {money(recentInvoiceTotal)}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="field md:col-span-1">
+              <label>Supplier</label>
+              <select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select>
+            </div>
             <div className="field">
-              <label>Balance Type</label>
-              <select className="input" name="direction" defaultValue="we_owe_supplier">
-                <option value="we_owe_supplier">We owe supplier</option>
-                <option value="supplier_credit">Supplier credit / deduct payable</option>
-              </select>
+              <label>Supplier Invoice No.</label>
+              <input className="input" name="supplier_invoice_number" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
-              <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
+            <div className="field">
+              <label>Invoice Date</label>
+              <input className="input" name="order_date" type="date" defaultValue={todayISO()} />
             </div>
-            <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} placeholder="Old payable balance, previous supplier statement, etc." /></div>
-            <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
+          </div>
+          <SupplierInvoiceLines items={items} />
+          <SupplierInvoiceDeductions items={items} />
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div className="field">
+              <label>Invoice Image / Attachment</label>
+              <input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" />
+            </div>
+            <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
+          </div>
         </form>
-        <form action={recordSupplierAdjustment} className="card grid gap-4 p-5">
-            <h3 className="text-xl font-bold">Separate Supplier Return / Damage / Credit</h3>
-            <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
-            <div className="field"><label>Type</label><select className="input" name="adjustment_type"><option value="return">Return</option><option value="damage">Damage</option><option value="credit">Credit</option></select></div>
-            <div className="field"><label>Item</label><select className="input" name="item_id"><option value="">No item</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="field"><label>Qty</label><input className="input" name="quantity" type="number" step="0.01" /></div>
-              <div className="field"><label>Amount Deducted</label><input className="input" name="amount" type="number" step="0.01" /></div>
+
+        <aside className="grid content-start gap-5">
+          <section className="card table-wrap">
+            <div className="border-b border-[color:var(--border)] p-4">
+              <h3 className="font-bold">Supplier Balances</h3>
             </div>
-            <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
-            <div className="field"><label>Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
-            <div className="field"><label>Reason</label><textarea className="input" name="reason" rows={2} /></div>
-            <SubmitButton pendingText="Recording adjustment...">Record Separate Adjustment</SubmitButton>
-        </form>
-        <div className="card table-wrap">
-          <table>
-            <thead><tr><th>Supplier</th><th>Balance</th><th>Edit / Delete</th></tr></thead>
-            <tbody>
-              {suppliers.map((supplier) => {
-                const row = supplierRows.find((supplierRow) => supplierRow.id === supplier.supplier_id);
-                return (
+            <table>
+              <thead><tr><th>Supplier</th><th>Balance</th></tr></thead>
+              <tbody>
+                {suppliers.slice(0, 12).map((supplier) => (
                   <tr key={supplier.supplier_id}>
                     <td>{supplier.name}</td>
-                    <td>{money(supplier.balance)}</td>
-                    <td>
-                      <details>
-                        <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit</summary>
-                        <form action={updateSupplier} className="mt-3 grid min-w-72 gap-2">
-                          <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
-                          <input className="input" name="name" defaultValue={row?.name ?? supplier.name} />
-                          <input className="input" name="contact_name" defaultValue={row?.contact_name ?? ""} />
-                          <input className="input" name="phone" defaultValue={row?.phone ?? ""} />
-                          <textarea className="input" name="address" rows={2} defaultValue={row?.address ?? ""} />
-                          <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
-                        </form>
-                        <form action={deleteSupplier} className="mt-2">
-                          <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
-                          <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier?" message="This hides the supplier from active supplier lists while keeping purchase and payment history." confirmLabel="Delete Supplier">Delete</ConfirmSubmitButton>
-                        </form>
-                      </details>
-                    </td>
+                    <td className="font-bold">{money(supplier.balance)}</td>
                   </tr>
-                );
-              })}
-              {!suppliers.length ? <tr><td colSpan={3}>No suppliers yet.</td></tr> : null}
+                ))}
+                {!suppliers.length ? <tr><td colSpan={2}>No suppliers yet.</td></tr> : null}
+              </tbody>
+            </table>
+          </section>
+
+          <details className="card p-5">
+            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Add Supplier</summary>
+            <form action={createSupplier} className="mt-4 grid gap-3">
+              <div className="field"><label>Name</label><input className="input" name="name" required /></div>
+              <div className="field"><label>Contact</label><input className="input" name="contact_name" /></div>
+              <div className="field"><label>Phone</label><input className="input" name="phone" /></div>
+              <div className="field"><label>Address</label><textarea className="input" name="address" rows={2} /></div>
+              <SubmitButton pendingText="Saving supplier...">Save Supplier</SubmitButton>
+            </form>
+          </details>
+        </aside>
+      </section>
+
+      <section className="mt-5 grid gap-5 xl:grid-cols-2">
+        <section className="card table-wrap">
+          <div className="border-b border-[color:var(--border)] p-4">
+            <h3 className="font-bold">Recent Supplier Invoices</h3>
+          </div>
+          <table>
+            <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Open</th></tr></thead>
+            <tbody>
+              {supplierInvoices.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td>{invoice.order_date}</td>
+                  <td>{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
+                  <td>{invoice.suppliers?.name}</td>
+                  <td>{invoice.items?.name}</td>
+                  <td>{money(invoice.total)}</td>
+                  <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
+                </tr>
+              ))}
+              {!supplierInvoices.length ? <tr><td colSpan={6}>No supplier invoices yet.</td></tr> : null}
             </tbody>
           </table>
-        </div>
-      </div>
-      <section className="mt-5 card table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Supplier Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Attachment</th><th>Open</th></tr></thead>
-          <tbody>
-            {supplierInvoices.map((invoice) => (
-              <tr key={invoice.id}>
-                <td>{invoice.order_date}</td>
-                <td>{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
-                <td>{invoice.suppliers?.name}</td>
-                <td>{invoice.items?.name}</td>
-                <td>{money(invoice.total)}</td>
-                <td>{invoice.app_files?.id ? <a className="font-bold text-[color:var(--primary)]" href={`/attachments/${invoice.app_files.id}`} target="_blank">View</a> : "-"}</td>
-                <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
-              </tr>
-            ))}
-            {!supplierInvoices.length ? <tr><td colSpan={7}>No supplier invoices yet.</td></tr> : null}
-          </tbody>
-        </table>
+        </section>
+
+        <section className="card table-wrap">
+          <div className="border-b border-[color:var(--border)] p-4">
+            <h3 className="font-bold">Recent Supplier Deductions</h3>
+          </div>
+          <table>
+            <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount</th></tr></thead>
+            <tbody>
+              {adjustments.map((row) => <tr key={row.id}><td>{row.adjustment_date}</td><td>{row.suppliers?.name}</td><td>{row.adjustment_type}</td><td>{row.items?.name ?? "-"}</td><td>{money(row.amount)}</td></tr>)}
+              {!adjustments.length ? <tr><td colSpan={5}>No supplier deductions yet.</td></tr> : null}
+            </tbody>
+          </table>
+        </section>
       </section>
-      <section className="mt-5 card table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount Deducted</th><th>Reason</th></tr></thead>
-          <tbody>
-            {adjustments.map((row) => <tr key={row.id}><td>{row.adjustment_date}</td><td>{row.suppliers?.name}</td><td>{row.adjustment_type}</td><td>{row.items?.name ?? "-"}</td><td>{money(row.amount)}</td><td>{row.reason}</td></tr>)}
-            {!adjustments.length ? <tr><td colSpan={6}>No supplier returns or damages yet.</td></tr> : null}
-          </tbody>
-        </table>
+
+      <section className="mt-5 card p-5">
+        <div className="mb-4">
+          <h3 className="text-xl font-bold">Supplier Maintenance</h3>
+          <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">Use these for payments, old balances, supplier profile edits, and deductions that were not entered with an invoice.</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <details className="border border-[color:var(--border)] p-4">
+            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Record Supplier Payment</summary>
+            <form action={recordSupplierPayment} className="mt-4 grid gap-3">
+              <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
+              <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" /></div>
+              <div className="field"><label>Reference</label><input className="input" name="reference" /></div>
+              <SubmitButton pendingText="Recording payment...">Record Payment</SubmitButton>
+            </form>
+          </details>
+
+          <details className="border border-[color:var(--border)] p-4">
+            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Old / Opening Supplier Balance</summary>
+            <form action={recordSupplierOpeningBalance} className="mt-4 grid gap-3">
+              <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
+              <div className="field">
+                <label>Balance Type</label>
+                <select className="input" name="direction" defaultValue="we_owe_supplier">
+                  <option value="we_owe_supplier">We owe supplier</option>
+                  <option value="supplier_credit">Supplier credit / deduct payable</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
+                <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
+              </div>
+              <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} placeholder="Old payable balance, previous supplier statement, etc." /></div>
+              <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
+            </form>
+          </details>
+
+          <details className="border border-[color:var(--border)] p-4">
+            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Separate Supplier Return / Damage / Credit</summary>
+            <form action={recordSupplierAdjustment} className="mt-4 grid gap-3">
+              <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
+              <div className="field"><label>Type</label><select className="input" name="adjustment_type"><option value="return">Return</option><option value="damage">Damage</option><option value="credit">Credit</option></select></div>
+              <div className="field"><label>Item</label><select className="input" name="item_id"><option value="">No item</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="field"><label>Qty</label><input className="input" name="quantity" type="number" step="0.01" /></div>
+                <div className="field"><label>Amount Deducted</label><input className="input" name="amount" type="number" step="0.01" /></div>
+              </div>
+              <div className="field"><label>Date</label><input className="input" name="adjustment_date" type="date" defaultValue={todayISO()} /></div>
+              <div className="field"><label>Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
+              <div className="field"><label>Reason</label><textarea className="input" name="reason" rows={2} /></div>
+              <SubmitButton pendingText="Recording adjustment...">Record Separate Adjustment</SubmitButton>
+            </form>
+          </details>
+
+          <details className="border border-[color:var(--border)] p-4">
+            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit Supplier Directory</summary>
+            <div className="mt-4 table-wrap">
+              <table>
+                <thead><tr><th>Supplier</th><th>Balance</th><th>Edit / Delete</th></tr></thead>
+                <tbody>
+                  {suppliers.map((supplier) => {
+                    const row = supplierRows.find((supplierRow) => supplierRow.id === supplier.supplier_id);
+                    return (
+                      <tr key={supplier.supplier_id}>
+                        <td>{supplier.name}</td>
+                        <td>{money(supplier.balance)}</td>
+                        <td>
+                          <details>
+                            <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit</summary>
+                            <form action={updateSupplier} className="mt-3 grid min-w-72 gap-2">
+                              <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
+                              <input className="input" name="name" defaultValue={row?.name ?? supplier.name} />
+                              <input className="input" name="contact_name" defaultValue={row?.contact_name ?? ""} />
+                              <input className="input" name="phone" defaultValue={row?.phone ?? ""} />
+                              <textarea className="input" name="address" rows={2} defaultValue={row?.address ?? ""} />
+                              <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save</SubmitButton>
+                            </form>
+                            <form action={deleteSupplier} className="mt-2">
+                              <input type="hidden" name="supplier_id" value={supplier.supplier_id} />
+                              <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier?" message="This hides the supplier from active supplier lists while keeping purchase and payment history." confirmLabel="Delete Supplier">Delete</ConfirmSubmitButton>
+                            </form>
+                          </details>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!suppliers.length ? <tr><td colSpan={3}>No suppliers yet.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
       </section>
     </>
   );
