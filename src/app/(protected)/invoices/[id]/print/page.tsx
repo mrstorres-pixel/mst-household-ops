@@ -51,6 +51,27 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
           ))}
         </tbody>
       </table>
+      {data.deductions.length ? (
+        <section className="mt-6">
+          <h2 className="mb-2 text-lg font-bold">Returns / Damages</h2>
+          <table>
+            <thead><tr><th>Type</th><th>Item / Description</th><th>Qty</th><th>Deduction</th></tr></thead>
+            <tbody>
+              {data.deductions.map((deduction, index) => (
+                <tr key={`${deduction.type}-${deduction.item_id ?? "manual"}-${index}`}>
+                  <td className="capitalize">{deduction.type}</td>
+                  <td>
+                    <p>{deduction.item_name ?? deduction.reason}</p>
+                    {deduction.item_name && deduction.reason ? <p className="text-sm text-[color:var(--muted-foreground)]">{deduction.reason}</p> : null}
+                  </td>
+                  <td>{Number(deduction.quantity ?? 0) || ""}</td>
+                  <td>-{money(deduction.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
       <div className="mt-6 flex justify-end">
         <div className="w-72 border-t border-black pt-3 text-right">
           {deductionsTotal > 0 ? (

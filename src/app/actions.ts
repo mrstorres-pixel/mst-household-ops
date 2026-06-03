@@ -19,6 +19,11 @@ function errorMessage(error: { message?: string; code?: string; details?: string
   return parts.join(" ");
 }
 
+function isMissingColumnError(error: { message?: string; code?: string; details?: string } | null) {
+  const message = errorMessage(error).toLowerCase();
+  return error?.code === "PGRST204" || message.includes("schema cache") || (message.includes("column") && message.includes("does not exist"));
+}
+
 function moneyNumber(value: string | undefined) {
   if (!value) return 0;
   const parsed = Number(value.replace(/[^\d.-]/g, ""));
@@ -138,6 +143,34 @@ async function uploadOptionalFile(
     .single();
   if (error) throw error;
   return data.id as string;
+}
+
+function withoutFields<T extends Record<string, unknown>>(row: T, fields: string[]) {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !fields.includes(key)));
+}
+
+async function insertRowsWithSchemaFallback(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: string,
+  rows: Record<string, unknown>[],
+  fallbackFields: string[]
+) {
+  const { error } = await supabase.from(table).insert(rows);
+  if (!error || !isMissingColumnError(error)) return error;
+  const { error: fallbackError } = await supabase.from(table).insert(rows.map((row) => withoutFields(row, fallbackFields)));
+  return fallbackError;
+}
+
+async function insertOneWithSchemaFallback(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: string,
+  row: Record<string, unknown>,
+  fallbackFields: string[]
+) {
+  const result = await supabase.from(table).insert(row).select("id").single();
+  if (!result.error || !isMissingColumnError(result.error)) return { data: result.data, error: result.error };
+  const fallbackResult = await supabase.from(table).insert(withoutFields(row, fallbackFields)).select("id").single();
+  return { data: fallbackResult.data, error: fallbackResult.error };
 }
 
 export async function signIn(formData: FormData) {
@@ -675,7 +708,8 @@ export async function createInvoice(formData: FormData) {
       unit_price: prices[index],
       line_total: quantities[index] * prices[index]
     }))
-    .filter((line) => line.item_id && line.quantity > 0);
+    .filter((line) => line.item_id && line.quantity > 0)
+    .map((line, sortOrder) => ({ ...line, sort_order: sortOrder }));
 
   if (!lines.length) pageError("/invoices/new", "Add at least one invoice item with quantity greater than zero.");
   if (lines.some((line) => line.unit_price < 0)) pageError("/invoices/new", "Unit price cannot be negative.");
@@ -702,7 +736,9 @@ export async function createInvoice(formData: FormData) {
   if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
     pageError("/invoices/new", "Return and damage deduction values cannot be negative.");
   }
-  const deductions = deductionDrafts.filter((deduction) => deduction.amount > 0);
+  const deductions = deductionDrafts
+    .filter((deduction) => deduction.amount > 0)
+    .map((deduction, sortOrder) => ({ ...deduction, sort_order: sortOrder }));
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
     pageError("/invoices/new", "Damage deductions need an item and quantity so inventory can be tracked.");
   }
@@ -744,7 +780,12 @@ export async function createInvoice(formData: FormData) {
     if (attachmentError) pageError("/invoices/new", `Invoice was created, but the attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
 
-  const { error: itemError } = await supabase.from("invoice_items").insert(lines.map((line) => ({ ...line, invoice_id: invoice.id })));
+  const itemError = await insertRowsWithSchemaFallback(
+    supabase,
+    "invoice_items",
+    lines.map((line) => ({ ...line, invoice_id: invoice.id })),
+    ["sort_order"]
+  );
   if (itemError) pageError("/invoices/new", `Invoice line items could not be saved: ${errorMessage(itemError)}`);
 
   const { error: ledgerError } = await supabase.from("customer_ledger_entries").insert({
@@ -772,20 +813,23 @@ export async function createInvoice(formData: FormData) {
 
   for (const deduction of deductions) {
     if (deduction.type === "return") {
-      const { data: returnRow, error: returnError } = await supabase
-        .from("returns")
-        .insert({
+      const { data: returnRow, error: returnError } = await insertOneWithSchemaFallback(
+        supabase,
+        "returns",
+        {
           invoice_id: invoice.id,
           customer_id: customerId,
           item_id: deduction.item_id,
           quantity: deduction.quantity,
           amount: deduction.amount,
           reason: deduction.reason,
-          return_date: invoiceDate
-        })
-        .select("id")
-        .single();
+          return_date: invoiceDate,
+          sort_order: deduction.sort_order
+        },
+        ["sort_order"]
+      );
       if (returnError) pageError("/invoices/new", `Invoice return deduction could not be saved: ${errorMessage(returnError)}`);
+      if (!returnRow) pageError("/invoices/new", "Invoice return deduction was saved without an ID.");
 
       if (deduction.item_id && deduction.quantity > 0) {
         const { error: returnMovementError } = await supabase.from("inventory_movements").insert({
@@ -800,9 +844,11 @@ export async function createInvoice(formData: FormData) {
         if (returnMovementError) pageError("/invoices/new", `Return inventory movement could not be saved: ${errorMessage(returnMovementError)}`);
       }
     } else {
-      const { data: damageRow, error: damageError } = await supabase
-        .from("damage_records")
-        .insert({
+      const { data: damageRow, error: damageError } = await insertOneWithSchemaFallback(
+        supabase,
+        "damage_records",
+        {
+          invoice_id: invoice.id,
           item_id: deduction.item_id,
           customer_id: customerId,
           subaccount_id: subaccountId,
@@ -810,11 +856,13 @@ export async function createInvoice(formData: FormData) {
           estimated_cost: deduction.amount,
           balance_credit: deduction.amount,
           reason: `${invoiceNumber}: ${deduction.reason}`,
-          damage_date: invoiceDate
-        })
-        .select("id")
-        .single();
+          damage_date: invoiceDate,
+          sort_order: deduction.sort_order
+        },
+        ["invoice_id", "sort_order"]
+      );
       if (damageError) pageError("/invoices/new", `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
+      if (!damageRow) pageError("/invoices/new", "Invoice damage deduction was saved without an ID.");
 
       const { error: damageMovementError } = await supabase.from("inventory_movements").insert({
         item_id: deduction.item_id,
@@ -890,7 +938,8 @@ export async function updatePostedInvoice(formData: FormData) {
       unit_price: prices[index],
       line_total: quantities[index] * prices[index]
     }))
-    .filter((line) => line.item_id && line.quantity > 0);
+    .filter((line) => line.item_id && line.quantity > 0)
+    .map((line, sortOrder) => ({ ...line, sort_order: sortOrder }));
 
   if (!lines.length) pageError(`/invoices/${invoiceId}/edit`, "Add at least one invoice item with quantity greater than zero.");
   if (lines.some((line) => line.unit_price < 0)) pageError(`/invoices/${invoiceId}/edit`, "Invoice prices cannot be negative.");
@@ -913,7 +962,9 @@ export async function updatePostedInvoice(formData: FormData) {
   if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
     pageError(`/invoices/${invoiceId}/edit`, "Return and damage deduction values cannot be negative.");
   }
-  const deductions = deductionDrafts.filter((deduction) => deduction.amount > 0);
+  const deductions = deductionDrafts
+    .filter((deduction) => deduction.amount > 0)
+    .map((deduction, sortOrder) => ({ ...deduction, sort_order: sortOrder }));
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
     pageError(`/invoices/${invoiceId}/edit`, "Damage deductions need an item and quantity so inventory can be tracked.");
   }
@@ -950,9 +1001,15 @@ export async function updatePostedInvoice(formData: FormData) {
 
   await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
   await supabase.from("returns").delete().eq("invoice_id", invoiceId);
+  await supabase.from("damage_records").delete().eq("invoice_id", invoiceId);
   await supabase.from("damage_records").delete().eq("customer_id", invoice.customer_id).ilike("reason", `${invoice.invoice_number}:%`);
 
-  const { error: itemInsertError } = await supabase.from("invoice_items").insert(lines.map((line) => ({ ...line, invoice_id: invoiceId })));
+  const itemInsertError = await insertRowsWithSchemaFallback(
+    supabase,
+    "invoice_items",
+    lines.map((line) => ({ ...line, invoice_id: invoiceId })),
+    ["sort_order"]
+  );
   if (itemInsertError) pageError(`/invoices/${invoiceId}/edit`, `Invoice line items could not be saved: ${errorMessage(itemInsertError)}`);
 
   const { error: invoiceUpdateError } = await supabase
@@ -988,20 +1045,23 @@ export async function updatePostedInvoice(formData: FormData) {
 
   for (const deduction of deductions) {
     if (deduction.type === "return") {
-      const { data: returnRow, error: returnError } = await supabase
-        .from("returns")
-        .insert({
+      const { data: returnRow, error: returnError } = await insertOneWithSchemaFallback(
+        supabase,
+        "returns",
+        {
           invoice_id: invoiceId,
           customer_id: invoice.customer_id,
           item_id: deduction.item_id,
           quantity: deduction.quantity,
           amount: deduction.amount,
           reason: deduction.reason,
-          return_date: invoiceDate
-        })
-        .select("id")
-        .single();
+          return_date: invoiceDate,
+          sort_order: deduction.sort_order
+        },
+        ["sort_order"]
+      );
       if (returnError) pageError(`/invoices/${invoiceId}/edit`, `Invoice return deduction could not be saved: ${errorMessage(returnError)}`);
+      if (!returnRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice return deduction was saved without an ID.");
 
       if (deduction.item_id && deduction.quantity > 0) {
         const { error: returnMovementError } = await supabase.from("inventory_movements").insert({
@@ -1016,9 +1076,11 @@ export async function updatePostedInvoice(formData: FormData) {
         if (returnMovementError) pageError(`/invoices/${invoiceId}/edit`, `Return inventory movement could not be saved: ${errorMessage(returnMovementError)}`);
       }
     } else {
-      const { data: damageRow, error: damageError } = await supabase
-        .from("damage_records")
-        .insert({
+      const { data: damageRow, error: damageError } = await insertOneWithSchemaFallback(
+        supabase,
+        "damage_records",
+        {
+          invoice_id: invoiceId,
           item_id: deduction.item_id,
           customer_id: invoice.customer_id,
           subaccount_id: invoice.subaccount_id,
@@ -1026,11 +1088,13 @@ export async function updatePostedInvoice(formData: FormData) {
           estimated_cost: deduction.amount,
           balance_credit: deduction.amount,
           reason: `${invoice.invoice_number}: ${deduction.reason}`,
-          damage_date: invoiceDate
-        })
-        .select("id")
-        .single();
+          damage_date: invoiceDate,
+          sort_order: deduction.sort_order
+        },
+        ["invoice_id", "sort_order"]
+      );
       if (damageError) pageError(`/invoices/${invoiceId}/edit`, `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
+      if (!damageRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice damage deduction was saved without an ID.");
 
       const { error: damageMovementError } = await supabase.from("inventory_movements").insert({
         item_id: deduction.item_id,
@@ -1107,6 +1171,8 @@ export async function deleteCustomerInvoice(formData: FormData) {
   await supabase.from("customer_ledger_entries").delete().eq("invoice_id", invoiceId);
   await supabase.from("payments").delete().eq("customer_id", invoice.customer_id).eq("reference", invoice.invoice_number);
   await supabase.from("returns").delete().eq("invoice_id", invoiceId);
+  await supabase.from("damage_records").delete().eq("invoice_id", invoiceId);
+  await supabase.from("damage_records").delete().eq("customer_id", invoice.customer_id).ilike("reason", `${invoice.invoice_number}:%`);
   const { error: deleteError } = await supabase.from("invoices").delete().eq("id", invoiceId);
   if (deleteError) pageError(`/invoices/${invoiceId}/edit`, `Invoice could not be deleted: ${errorMessage(deleteError)}`);
 

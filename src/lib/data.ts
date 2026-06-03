@@ -4,6 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 
 export type Row = Record<string, unknown>;
 
+function isMissingColumnError(error: { message?: string; code?: string; details?: string } | null) {
+  const message = [error?.message, error?.details, error?.code].filter(Boolean).join(" ").toLowerCase();
+  return error?.code === "PGRST204" || message.includes("schema cache") || (message.includes("column") && message.includes("does not exist"));
+}
+
 export type InventorySortKey = "name" | "sku" | "supplier" | "category" | "quantity" | "price" | "cost" | "value";
 export type InventoryFilterStatus = "all" | "in_stock" | "low_stock" | "out_of_stock" | "missing_sku" | "no_supplier" | "no_category" | "missing_cost";
 export type CustomerSortKey = "name" | "balance";
@@ -350,35 +355,62 @@ export async function getInvoice(id: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [{ data: invoice }, { data: lines }, { data: returns }] = await Promise.all([
-    supabase.from("invoices").select("*, customers(name, address, phone), app_files(id, file_name)").eq("id", id).maybeSingle(),
-    supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id"),
-    supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("created_at")
-  ]);
+  const { data: invoice } = await supabase.from("invoices").select("*, customers(name, address, phone), app_files(id, file_name)").eq("id", id).maybeSingle();
   if (!invoice) return null;
-  const { data: damages } = await supabase
+
+  let linesResult = await supabase.from("invoice_items").select("*").eq("invoice_id", id).order("sort_order").order("id");
+  if (linesResult.error && isMissingColumnError(linesResult.error)) {
+    linesResult = await supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id");
+  }
+
+  let returnsResult = await supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("sort_order").order("created_at");
+  if (returnsResult.error && isMissingColumnError(returnsResult.error)) {
+    returnsResult = await supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("created_at");
+  }
+
+  const invoiceDamages = await supabase
+    .from("damage_records")
+    .select("*, items(name, sku)")
+    .eq("invoice_id", id)
+    .order("sort_order")
+    .order("created_at");
+  const invoiceDamageRows = invoiceDamages.error && isMissingColumnError(invoiceDamages.error) ? [] : invoiceDamages.data ?? [];
+
+  const { data: legacyDamages } = await supabase
     .from("damage_records")
     .select("*, items(name, sku)")
     .eq("customer_id", invoice.customer_id)
     .ilike("reason", `${invoice.invoice_number}:%`)
     .order("created_at");
+
+  const damagesById = new Map<string, Row>();
+  for (const row of [...invoiceDamageRows, ...(legacyDamages ?? [])]) {
+    damagesById.set(String(row.id), row);
+  }
+  const damages = Array.from(damagesById.values());
   const deductions = [
-    ...(returns ?? []).map((row) => ({
+    ...(returnsResult.data ?? []).map((row, index) => ({
       type: "return",
       item_id: row.item_id,
+      item_name: row.items?.name ?? null,
+      item_sku: row.items?.sku ?? null,
       quantity: row.quantity,
       amount: row.amount,
-      reason: row.reason ?? ""
+      reason: row.reason ?? "",
+      sort_order: Number(row.sort_order ?? index)
     })),
-    ...(damages ?? []).map((row) => ({
+    ...damages.map((row, index) => ({
       type: "damage",
       item_id: row.item_id,
+      item_name: (row.items as Row | null | undefined)?.name ?? null,
+      item_sku: (row.items as Row | null | undefined)?.sku ?? null,
       quantity: row.quantity,
       amount: row.balance_credit ?? row.estimated_cost,
-      reason: String(row.reason ?? "").replace(`${invoice.invoice_number}:`, "").trim()
+      reason: String(row.reason ?? "").replace(`${invoice.invoice_number}:`, "").trim(),
+      sort_order: Number(row.sort_order ?? index)
     }))
-  ];
-  return { invoice, lines: lines ?? [], returns: returns ?? [], damages: damages ?? [], deductions };
+  ].sort((first, second) => Number(first.sort_order ?? 0) - Number(second.sort_order ?? 0));
+  return { invoice, lines: linesResult.data ?? [], returns: returnsResult.data ?? [], damages, deductions };
 }
 
 export async function listPayments() {
