@@ -1223,6 +1223,7 @@ export async function recordSupplierPurchase(formData: FormData) {
   const quantities = formData.getAll("quantity").map(asNumber);
   const unitCosts = formData.getAll("unit_cost").map(asNumber);
   const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
+  const orderDate = text(formData, "order_date") || new Date().toISOString().slice(0, 10);
   const lines = itemIds
     .map((itemId, index) => ({
       supplier_id: supplierId,
@@ -1230,7 +1231,8 @@ export async function recordSupplierPurchase(formData: FormData) {
       quantity: quantities[index],
       unit_cost: unitCosts[index],
       total: quantities[index] * unitCosts[index],
-      supplier_invoice_number: supplierInvoiceNumber
+      supplier_invoice_number: supplierInvoiceNumber,
+      order_date: orderDate
     }))
     .filter((line) => line.item_id && line.quantity > 0);
   const total = lines.reduce((sum, line) => sum + line.total, 0);
@@ -1256,7 +1258,7 @@ export async function recordSupplierPurchase(formData: FormData) {
     const { error: attachmentError } = await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).in("id", postedPurchases.map((purchase) => purchase.id));
     if (attachmentError) pageError("/suppliers", `Supplier invoice attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
-  await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, line_count: postedPurchases.length });
+  await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, line_count: postedPurchases.length, order_date: orderDate });
   const { error: movementError } = await supabase.from("inventory_movements").insert(
     postedPurchases.map((purchase) => ({
       item_id: purchase.item_id,
@@ -1264,7 +1266,8 @@ export async function recordSupplierPurchase(formData: FormData) {
       quantity_delta: purchase.quantity,
       unit_cost: purchase.unit_cost,
       reference_type: "purchase_order",
-      reference_id: purchase.id
+      reference_id: purchase.id,
+      movement_date: orderDate
     }))
   );
   if (movementError) pageError("/suppliers", `Supplier stock movement could not be saved: ${errorMessage(movementError)}`);

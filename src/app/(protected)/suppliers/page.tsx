@@ -28,7 +28,10 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
         <form action={recordSupplierPurchase} className="card grid gap-4 p-5">
             <h3 className="text-xl font-bold">Supplier Invoice</h3>
             <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
-            <div className="field"><label>Supplier Invoice No.</label><input className="input" name="supplier_invoice_number" /></div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="field"><label>Supplier Invoice No.</label><input className="input" name="supplier_invoice_number" /></div>
+              <div className="field"><label>Invoice Date</label><input className="input" name="order_date" type="date" defaultValue={todayISO()} /></div>
+            </div>
             <SupplierInvoiceLines items={items} />
             <div className="field"><label>Invoice Image / Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
             <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
