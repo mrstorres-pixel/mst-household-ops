@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteCustomerInvoice, updatePostedInvoice } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { InvoiceDeductions } from "@/components/invoice-deductions";
+import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
-import { getInvoice } from "@/lib/data";
+import { getInvoice, listItems } from "@/lib/data";
 import { money } from "@/lib/format";
 
 export default async function EditInvoicePage({
@@ -15,15 +17,15 @@ export default async function EditInvoicePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const [{ id }, notices] = await Promise.all([params, searchParams]);
+  const [{ id }, notices, items] = await Promise.all([params, searchParams, listItems()]);
   const data = await getInvoice(id);
   if (!data) notFound();
 
   return (
     <>
-      <PageHeader title={`Edit Invoice ${data.invoice.invoice_number}`} description="Correct existing invoice line quantities, prices, and descriptions." />
+      <PageHeader title={`Edit Invoice ${data.invoice.invoice_number}`} description="Edit this invoice like you are making it: add or remove items, update prices, and manage returns or damages in one place." />
       <PageNotice error={notices.error} success={notices.success} />
-      <div className="mb-5 flex gap-2">
+      <div className="mb-5 flex flex-wrap gap-2">
         <Link className="btn btn-secondary" href={`/invoices/${id}/print`}>Back to Print View</Link>
         <Link className="btn btn-secondary" href={`/customers/${data.invoice.customer_id}`}>Open Customer</Link>
         <form action={deleteCustomerInvoice}>
@@ -33,33 +35,25 @@ export default async function EditInvoicePage({
       </div>
       <form action={updatePostedInvoice} className="grid gap-5">
         <input type="hidden" name="invoice_id" value={id} />
-        <section className="card p-5">
-          <div className="grid gap-3 md:grid-cols-3">
-            <p><strong>Customer</strong><br />{data.invoice.customers?.name}</p>
-            <p><strong>Date</strong><br />{data.invoice.invoice_date}</p>
-            <p><strong>Current Total</strong><br />{money(data.invoice.total)}</p>
+        <section className="card grid gap-4 p-5 md:grid-cols-3">
+          <p><strong>Customer</strong><br />{data.invoice.customers?.name}</p>
+          <p><strong>Current Total</strong><br />{money(data.invoice.total)}</p>
+          <p><strong>Current Deductions</strong><br />{money(data.invoice.returns_total)}</p>
+          <div className="field">
+            <label>Invoice Date</label>
+            <input className="input" name="invoice_date" type="date" defaultValue={data.invoice.invoice_date} />
+          </div>
+          <div className="field md:col-span-2">
+            <label>Notes</label>
+            <textarea className="input" name="notes" rows={2} defaultValue={data.invoice.notes ?? ""} />
           </div>
         </section>
-        <section className="card table-wrap">
-          <table>
-            <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Current Total</th></tr></thead>
-            <tbody>
-              {data.lines.map((line) => (
-                <tr key={line.id}>
-                  <td>
-                    <input type="hidden" name="line_id" value={line.id} />
-                    <input className="input" name="description" defaultValue={line.description} />
-                  </td>
-                  <td><input className="input" name="quantity" type="number" step="0.01" min="0.01" defaultValue={line.quantity} /></td>
-                  <td><input className="input" name="unit_price" type="number" step="0.01" min="0" defaultValue={line.unit_price} /></td>
-                  <td className="font-bold">{money(line.line_total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+
+        <InvoiceLines items={items} initialLines={data.lines} initialRowCount={data.lines.length || 1} />
+        <InvoiceDeductions items={items} initialLines={data.deductions} />
+
         <div>
-          <SubmitButton pendingText="Saving invoice...">Save Invoice Corrections</SubmitButton>
+          <SubmitButton pendingText="Saving invoice...">Save Invoice Changes</SubmitButton>
         </div>
       </form>
     </>

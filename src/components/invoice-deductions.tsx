@@ -17,6 +17,14 @@ type DeductionLine = {
   reason: string;
 };
 
+type InitialDeductionLine = {
+  type?: "return" | "damage" | string | null;
+  item_id?: string | null;
+  quantity?: number | string | null;
+  amount?: number | string | null;
+  reason?: string | null;
+};
+
 const emptyLine = (): DeductionLine => ({
   type: "return",
   itemId: "",
@@ -25,8 +33,18 @@ const emptyLine = (): DeductionLine => ({
   reason: ""
 });
 
-export function InvoiceDeductions({ items }: { items: ItemOption[] }) {
-  const [lines, setLines] = useState<DeductionLine[]>([emptyLine()]);
+function hydrateLine(line: InitialDeductionLine): DeductionLine {
+  return {
+    type: line.type === "damage" ? "damage" : "return",
+    itemId: line.item_id ?? "",
+    quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
+    amount: line.amount === null || line.amount === undefined ? "" : String(line.amount),
+    reason: line.reason ?? ""
+  };
+}
+
+export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]; initialLines?: InitialDeductionLine[] }) {
+  const [lines, setLines] = useState<DeductionLine[]>(() => initialLines?.length ? initialLines.map(hydrateLine) : [emptyLine()]);
   const total = useMemo(() => lines.reduce((sum, line) => sum + Number(line.amount || 0), 0), [lines]);
 
   function updateLine(index: number, patch: Partial<DeductionLine>) {

@@ -350,12 +350,35 @@ export async function getInvoice(id: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [{ data: invoice }, { data: lines }] = await Promise.all([
+  const [{ data: invoice }, { data: lines }, { data: returns }] = await Promise.all([
     supabase.from("invoices").select("*, customers(name, address, phone), app_files(id, file_name)").eq("id", id).maybeSingle(),
-    supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id")
+    supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id"),
+    supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("created_at")
   ]);
   if (!invoice) return null;
-  return { invoice, lines: lines ?? [] };
+  const { data: damages } = await supabase
+    .from("damage_records")
+    .select("*, items(name, sku)")
+    .eq("customer_id", invoice.customer_id)
+    .ilike("reason", `${invoice.invoice_number}:%`)
+    .order("created_at");
+  const deductions = [
+    ...(returns ?? []).map((row) => ({
+      type: "return",
+      item_id: row.item_id,
+      quantity: row.quantity,
+      amount: row.amount,
+      reason: row.reason ?? ""
+    })),
+    ...(damages ?? []).map((row) => ({
+      type: "damage",
+      item_id: row.item_id,
+      quantity: row.quantity,
+      amount: row.balance_credit ?? row.estimated_cost,
+      reason: String(row.reason ?? "").replace(`${invoice.invoice_number}:`, "").trim()
+    }))
+  ];
+  return { invoice, lines: lines ?? [], returns: returns ?? [], damages: damages ?? [], deductions };
 }
 
 export async function listPayments() {

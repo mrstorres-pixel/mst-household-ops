@@ -17,6 +17,13 @@ type Line = {
   unitPrice: string;
 };
 
+type InitialLine = {
+  item_id?: string | null;
+  description?: string | null;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
+};
+
 const emptyLine = (index: number): Line => ({
   itemId: "",
   description: "",
@@ -24,8 +31,20 @@ const emptyLine = (index: number): Line => ({
   unitPrice: ""
 });
 
-export function InvoiceLines({ items }: { items: ItemOption[] }) {
-  const [lines, setLines] = useState<Line[]>(Array.from({ length: 5 }, (_, index) => emptyLine(index)));
+function hydrateLine(line: InitialLine): Line {
+  return {
+    itemId: line.item_id ?? "",
+    description: line.description ?? "",
+    quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
+    unitPrice: line.unit_price === null || line.unit_price === undefined ? "" : String(line.unit_price)
+  };
+}
+
+export function InvoiceLines({ items, initialLines, initialRowCount = 5 }: { items: ItemOption[]; initialLines?: InitialLine[]; initialRowCount?: number }) {
+  const [lines, setLines] = useState<Line[]>(() => {
+    if (initialLines?.length) return initialLines.map(hydrateLine);
+    return Array.from({ length: initialRowCount }, (_, index) => emptyLine(index));
+  });
 
   const total = useMemo(
     () => lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0), 0),
@@ -45,12 +64,16 @@ export function InvoiceLines({ items }: { items: ItemOption[] }) {
     });
   }
 
+  function removeLine(index: number) {
+    setLines((current) => current.length === 1 ? [emptyLine(0)] : current.filter((_, lineIndex) => lineIndex !== index));
+  }
+
   return (
     <section className="card">
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Qty</th><th>Item</th><th>Description</th><th>Unit Price</th><th>Total</th></tr>
+            <tr><th>Qty</th><th>Item</th><th>Description</th><th>Unit Price</th><th>Total</th><th>Action</th></tr>
           </thead>
           <tbody>
             {lines.map((line, index) => {
@@ -73,12 +96,18 @@ export function InvoiceLines({ items }: { items: ItemOption[] }) {
                     <input className="input" name="unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} />
                   </td>
                   <td className="font-bold">{money(lineTotal)}</td>
+                  <td>
+                    <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>
+                      Remove
+                    </button>
+                  </td>
                 </tr>
               );
             })}
             <tr>
               <td colSpan={4} className="text-right font-bold">Invoice Total</td>
               <td className="font-bold">{money(total)}</td>
+              <td />
             </tr>
           </tbody>
         </table>
