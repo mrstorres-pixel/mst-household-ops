@@ -1005,52 +1005,58 @@ export async function recordDamage(formData: FormData) {
 export async function recordSupplierPurchase(formData: FormData) {
   const supabase = await requireSupabase();
   const supplierId = text(formData, "supplier_id");
-  const itemId = text(formData, "item_id");
-  const quantity = asNumber(formData.get("quantity"));
-  const unitCost = asNumber(formData.get("unit_cost"));
-  const total = quantity * unitCost;
-  if (!supplierId) pageError("/suppliers", "Select a supplier before posting a supplier invoice.");
-  if (!itemId) pageError("/suppliers", "Select an item before posting a supplier invoice.");
-  if (quantity <= 0) pageError("/suppliers", "Supplier invoice quantity must be greater than zero.");
-  if (unitCost < 0) pageError("/suppliers", "Supplier invoice unit cost cannot be negative.");
-
-  const { data: purchase, error: purchaseError } = await supabase
-    .from("purchase_orders")
-    .insert({
+  const itemIds = formData.getAll("item_id").map(String);
+  const quantities = formData.getAll("quantity").map(asNumber);
+  const unitCosts = formData.getAll("unit_cost").map(asNumber);
+  const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
+  const lines = itemIds
+    .map((itemId, index) => ({
       supplier_id: supplierId,
       item_id: itemId,
-      quantity,
-      unit_cost: unitCost,
-      total,
-      supplier_invoice_number: text(formData, "supplier_invoice_number") || null
-    })
-    .select("id")
-    .single();
+      quantity: quantities[index],
+      unit_cost: unitCosts[index],
+      total: quantities[index] * unitCosts[index],
+      supplier_invoice_number: supplierInvoiceNumber
+    }))
+    .filter((line) => line.item_id && line.quantity > 0);
+  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  if (!supplierId) pageError("/suppliers", "Select a supplier before posting a supplier invoice.");
+  if (!lines.length) pageError("/suppliers", "Add at least one supplier invoice item with quantity greater than zero.");
+  if (lines.some((line) => line.unit_cost < 0)) pageError("/suppliers", "Supplier invoice unit cost cannot be negative.");
+
+  const { data: purchases, error: purchaseError } = await supabase
+    .from("purchase_orders")
+    .insert(lines)
+    .select("id, item_id, quantity, unit_cost, total");
   if (purchaseError) pageError("/suppliers", `Supplier invoice could not be saved: ${errorMessage(purchaseError)}`);
+  const postedPurchases = purchases ?? [];
+  const firstPurchaseId = postedPurchases[0]?.id ?? null;
 
   let attachmentId: string | null = null;
   try {
-    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_invoice", purchase?.id);
+    attachmentId = await uploadOptionalFile(supabase, formData, "attachment", "supplier_invoice", firstPurchaseId ?? undefined);
   } catch (error) {
     pageError("/suppliers", `Supplier invoice was created, but the attachment could not be uploaded: ${errorMessage(error as { message?: string; code?: string; details?: string })}`);
   }
-  if (attachmentId && purchase?.id) {
-    const { error: attachmentError } = await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).eq("id", purchase.id);
+  if (attachmentId && postedPurchases.length) {
+    const { error: attachmentError } = await supabase.from("purchase_orders").update({ attachment_file_id: attachmentId }).in("id", postedPurchases.map((purchase) => purchase.id));
     if (attachmentError) pageError("/suppliers", `Supplier invoice attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
-  await writeAudit(supabase, "create", "supplier_invoice", purchase?.id ?? null, `Recorded supplier invoice ${text(formData, "supplier_invoice_number") || ""}`, { total });
-  const { error: movementError } = await supabase.from("inventory_movements").insert({
-    item_id: itemId,
-    movement_type: "purchase",
-    quantity_delta: quantity,
-    unit_cost: unitCost,
-    reference_type: "purchase_order",
-    reference_id: purchase?.id
-  });
+  await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, line_count: postedPurchases.length });
+  const { error: movementError } = await supabase.from("inventory_movements").insert(
+    postedPurchases.map((purchase) => ({
+      item_id: purchase.item_id,
+      movement_type: "purchase",
+      quantity_delta: purchase.quantity,
+      unit_cost: purchase.unit_cost,
+      reference_type: "purchase_order",
+      reference_id: purchase.id
+    }))
+  );
   if (movementError) pageError("/suppliers", `Supplier stock movement could not be saved: ${errorMessage(movementError)}`);
   revalidatePath("/suppliers");
   revalidatePath("/inventory");
-  pageSuccess("/suppliers", "Supplier invoice saved.");
+  pageSuccess("/suppliers", `Supplier invoice saved with ${postedPurchases.length} item line${postedPurchases.length === 1 ? "" : "s"}.`);
 }
 
 export async function createSupplier(formData: FormData) {

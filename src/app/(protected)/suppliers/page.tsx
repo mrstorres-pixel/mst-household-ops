@@ -4,6 +4,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
+import { SupplierInvoiceLines } from "@/components/supplier-invoice-lines";
 import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
@@ -28,11 +29,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <h3 className="text-xl font-bold">Supplier Invoice</h3>
             <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
             <div className="field"><label>Supplier Invoice No.</label><input className="input" name="supplier_invoice_number" /></div>
-            <div className="field"><label>Item</label><select className="input" name="item_id">{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="field"><label>Qty</label><input className="input" name="quantity" type="number" step="0.01" /></div>
-              <div className="field"><label>Unit Cost</label><input className="input" name="unit_cost" type="number" step="0.01" /></div>
-            </div>
+            <SupplierInvoiceLines items={items} />
             <div className="field"><label>Invoice Image / Attachment</label><input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" /></div>
             <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
         </form>
