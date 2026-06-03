@@ -12,7 +12,7 @@ type CustomerOption = {
   customer_subaccounts?: Array<{ id: string; name: string }>;
 };
 
-export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+export default async function NewInvoicePage({ searchParams }: { searchParams: Promise<{ customer_id?: string; subaccount_id?: string; error?: string; success?: string }> }) {
   const params = await searchParams;
   const [customerRows, items] = await Promise.all([listCustomerRows(), listItems()]);
   const customers = customerRows as CustomerOption[];
@@ -25,13 +25,13 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         <section className="card grid gap-4 p-5 md:grid-cols-3">
           <div className="field">
             <label>Customer</label>
-            <select className="input" name="customer_id" required>
+            <select className="input" name="customer_id" defaultValue={params.customer_id ?? ""} required>
               {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
             </select>
           </div>
           <div className="field">
             <label>Sub-balance</label>
-            <select className="input" name="subaccount_id">
+            <select className="input" name="subaccount_id" defaultValue={params.subaccount_id ?? ""}>
               <option value="">None</option>
               {customers.flatMap((customer) => (customer.customer_subaccounts ?? []).map((sub) => (
                 <option key={sub.id} value={sub.id}>{customer.name}: {sub.name}</option>

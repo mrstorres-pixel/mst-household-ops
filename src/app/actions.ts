@@ -273,6 +273,48 @@ export async function removeCustomerSubaccount(formData: FormData) {
   pageSuccess(`/customers/${customerId}`, "Sub-balance removed.");
 }
 
+export async function updateCustomerSubaccount(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const subaccountId = text(formData, "subaccount_id");
+  const name = text(formData, "name");
+  if (!name) pageError(`/customers/${customerId}`, "Sub-balance name is required.");
+  const { error } = await supabase.from("customer_subaccounts").update({ name }).eq("id", subaccountId);
+  if (error) pageError(`/customers/${customerId}`, `Sub-balance could not be updated: ${errorMessage(error)}`);
+  await writeAudit(supabase, "update", "customer_subaccount", subaccountId, `Updated sub-balance ${name}`);
+  revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, "Sub-balance updated.");
+}
+
+export async function adjustCustomerSubaccountBalance(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const subaccountId = text(formData, "subaccount_id");
+  const direction = text(formData, "direction");
+  const amount = asNumber(formData.get("amount"));
+  const entryDate = text(formData, "entry_date") || new Date().toISOString().slice(0, 10);
+  const notes = text(formData, "notes");
+  if (!subaccountId) pageError(`/customers/${customerId}`, "Select a sub-balance before adjusting.");
+  if (amount <= 0) pageError(`/customers/${customerId}`, "Adjustment amount must be greater than zero.");
+  if (!["add", "subtract"].includes(direction)) pageError(`/customers/${customerId}`, "Select add or subtract for the sub-balance adjustment.");
+
+  const description = notes || (direction === "add" ? "Manual sub-balance addition" : "Manual sub-balance deduction");
+  const { error } = await supabase.from("customer_ledger_entries").insert({
+    customer_id: customerId,
+    subaccount_id: subaccountId,
+    entry_type: "sub_balance_adjustment",
+    description,
+    debit: direction === "add" ? amount : 0,
+    credit: direction === "subtract" ? amount : 0,
+    entry_date: entryDate
+  });
+  if (error) pageError(`/customers/${customerId}`, `Sub-balance adjustment could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "adjust", "customer_subaccount", subaccountId, description, { amount, direction });
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  pageSuccess(`/customers/${customerId}`, "Sub-balance adjusted.");
+}
+
 export async function deleteCustomer(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");
@@ -1097,7 +1139,7 @@ export async function recordSupplierOpeningBalance(formData: FormData) {
   const reason = notes || (direction === "we_owe_supplier" ? "Opening payable from previous records" : "Opening supplier credit from previous records");
   const { error } = await supabase.from("supplier_adjustments").insert({
     supplier_id: supplierId,
-    adjustment_type: "opening_balance",
+    adjustment_type: "credit",
     quantity: 0,
     amount: signedAmount,
     reason,

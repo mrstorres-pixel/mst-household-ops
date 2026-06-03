@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { addCustomerSubaccount, deleteCustomer, recordCustomerOpeningBalance, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer } from "@/app/actions";
+import { addCustomerSubaccount, adjustCustomerSubaccountBalance, deleteCustomer, recordCustomerOpeningBalance, removeCustomerSubaccount, saveCustomerTemplate, updateCustomer, updateCustomerSubaccount } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -14,6 +15,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
   const items = await listItems();
   if (!data?.customer) notFound();
   const balance = data.ledger.reduce((total, row) => total + Number(row.debit ?? 0) - Number(row.credit ?? 0), 0);
+  const subBalanceTotal = data.subaccounts.reduce((total, row) => total + Number(row.balance ?? 0), 0);
   const invoiceTotal = data.invoices.reduce((total, row) => total + Number(row.total ?? 0), 0);
   const paymentTotal = data.payments.reduce((total, row) => total + Number(row.amount ?? 0), 0);
 
@@ -69,16 +71,53 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
             <SubmitButton className="btn btn-secondary" pendingText="Saving balance...">Save Opening Balance</SubmitButton>
           </form>
           <div className="card p-5">
-            <h3 className="text-xl font-bold">Sub-balances</h3>
-            <div className="mt-4 grid gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xl font-bold">Sub-balances</h3>
+              <strong className="text-sm text-[color:var(--primary)]">Total: {money(subBalanceTotal)}</strong>
+            </div>
+            <div className="mt-4 grid gap-3">
               {data.subaccounts.map((sub) => (
-                <div className="grid gap-2 rounded-lg bg-[color:var(--muted)] p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center" key={sub.subaccount_id}>
-                  <span>{sub.name}</span><strong>{money(sub.balance)}</strong>
-                  <form action={removeCustomerSubaccount}>
-                    <input type="hidden" name="customer_id" value={id} />
-                    <input type="hidden" name="subaccount_id" value={sub.subaccount_id} />
-                    <ConfirmSubmitButton className="btn btn-warning" pendingText="Removing..." title="Remove sub-balance?" message="Only zero-balance sub-balances can be removed. This removes the sub-balance from this customer profile." confirmLabel="Remove">Remove</ConfirmSubmitButton>
-                  </form>
+                <div className="rounded-lg bg-[color:var(--muted)] p-3" key={sub.subaccount_id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-bold">{sub.name}</p>
+                      <p className="text-sm font-semibold text-[color:var(--primary)]">Balance: {money(sub.balance)}</p>
+                    </div>
+                    <Link className="btn btn-secondary" href={`/invoices/new?customer_id=${id}&subaccount_id=${sub.subaccount_id}`}>New Invoice</Link>
+                  </div>
+                  <details className="mt-3">
+                    <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Edit / Adjust</summary>
+                    <div className="mt-3 grid gap-3">
+                      <form action={updateCustomerSubaccount} className="grid gap-2">
+                        <input type="hidden" name="customer_id" value={id} />
+                        <input type="hidden" name="subaccount_id" value={sub.subaccount_id} />
+                        <div className="field"><label>Name</label><input className="input" name="name" defaultValue={sub.name} /></div>
+                        <SubmitButton className="btn btn-secondary" pendingText="Saving...">Save Name</SubmitButton>
+                      </form>
+                      <form action={adjustCustomerSubaccountBalance} className="grid gap-2 border-t border-[color:var(--border)] pt-3">
+                        <input type="hidden" name="customer_id" value={id} />
+                        <input type="hidden" name="subaccount_id" value={sub.subaccount_id} />
+                        <div className="field">
+                          <label>Modify Balance</label>
+                          <select className="input" name="direction" defaultValue="add">
+                            <option value="add">Add to sub-balance</option>
+                            <option value="subtract">Subtract from sub-balance</option>
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
+                          <div className="field"><label>Date</label><input className="input" name="entry_date" type="date" defaultValue={todayISO()} /></div>
+                        </div>
+                        <div className="field"><label>Notes</label><input className="input" name="notes" placeholder="Manual correction, old balance, etc." /></div>
+                        <SubmitButton className="btn btn-secondary" pendingText="Adjusting...">Save Adjustment</SubmitButton>
+                      </form>
+                      <form action={removeCustomerSubaccount} className="border-t border-[color:var(--border)] pt-3">
+                        <input type="hidden" name="customer_id" value={id} />
+                        <input type="hidden" name="subaccount_id" value={sub.subaccount_id} />
+                        <ConfirmSubmitButton className="btn btn-warning" pendingText="Removing..." title="Remove sub-balance?" message="Only zero-balance sub-balances can be removed. This removes the sub-balance from this customer profile." confirmLabel="Remove">Remove</ConfirmSubmitButton>
+                      </form>
+                    </div>
+                  </details>
                 </div>
               ))}
               {!data.subaccounts.length ? <p className="text-sm text-[color:var(--muted-foreground)]">No sub-balances.</p> : null}
