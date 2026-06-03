@@ -387,7 +387,7 @@ export async function listPayments() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("payments")
-    .select("*, customers(name), customer_subaccounts(name), app_files(id, file_name), payment_allocations(amount, invoices(invoice_number))")
+    .select("*, customers(id, name), customer_subaccounts(name), app_files(id, file_name), payment_allocations(amount, invoices(id, invoice_number))")
     .order("payment_date", { ascending: false })
     .limit(100);
   return data ?? [];
@@ -438,7 +438,7 @@ export async function listCheques() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("cheques")
-    .select("*, customers(name), app_files(id, file_name)")
+    .select("*, customers(id, name), app_files(id, file_name)")
     .order("received_date", { ascending: false });
   return data ?? [];
 }
