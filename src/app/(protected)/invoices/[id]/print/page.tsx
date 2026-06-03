@@ -7,6 +7,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
   const { id } = await params;
   const data = await getInvoice(id);
   if (!data) notFound();
+  const deductionsTotal = Number(data.invoice.returns_total ?? 0);
 
   return (
     <main className="mx-auto max-w-4xl bg-white p-8">
@@ -43,7 +44,13 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
         </tbody>
       </table>
       <div className="mt-6 flex justify-end">
-        <div className="w-64 border-t border-black pt-3 text-right">
+        <div className="w-72 border-t border-black pt-3 text-right">
+          {deductionsTotal > 0 ? (
+            <div className="mb-3 grid gap-1 text-sm">
+              <p className="flex justify-between gap-4"><span>Subtotal</span><span>{money(data.invoice.subtotal)}</span></p>
+              <p className="flex justify-between gap-4"><span>Returns / damage deductions</span><span>-{money(deductionsTotal)}</span></p>
+            </div>
+          ) : null}
           <p className="text-sm uppercase">Total Amount</p>
           <p className="text-3xl font-bold">{money(data.invoice.total)}</p>
         </div>

@@ -1,4 +1,5 @@
 import { createInvoice } from "@/app/actions";
+import { InvoiceDeductions } from "@/components/invoice-deductions";
 import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -57,6 +58,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
         </section>
 
         <InvoiceLines items={items} />
+        <InvoiceDeductions items={items} />
         <div><SubmitButton pendingText="Posting invoice...">Post and Print Invoice</SubmitButton></div>
       </form>
     </>

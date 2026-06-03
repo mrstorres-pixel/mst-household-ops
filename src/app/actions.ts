@@ -683,22 +683,55 @@ export async function createInvoice(formData: FormData) {
   const subtotal = lines.reduce((total, line) => total + line.line_total, 0);
   if (subtotal <= 0) pageError("/invoices/new", "Invoice total must be greater than zero.");
 
+  const deductionTypes = formData.getAll("deduction_type").map(String);
+  const deductionItemIds = formData.getAll("deduction_item_id").map(String);
+  const deductionQuantities = formData.getAll("deduction_quantity").map(asNumber);
+  const deductionAmounts = formData.getAll("deduction_amount").map(asNumber);
+  const deductionReasons = formData.getAll("deduction_reason").map(String);
+  const deductionDrafts = deductionTypes.map((deductionType, index) => {
+    const type = deductionType === "damage" ? "damage" : "return";
+    return {
+      type,
+      item_id: deductionItemIds[index] || null,
+      quantity: deductionQuantities[index] || 0,
+      amount: deductionAmounts[index] || 0,
+      reason: deductionReasons[index]?.trim() || (type === "damage" ? "Invoice damage deduction" : "Invoice return deduction")
+    };
+  });
+
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
+    pageError("/invoices/new", "Return and damage deduction values cannot be negative.");
+  }
+  const deductions = deductionDrafts.filter((deduction) => deduction.amount > 0);
+  if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
+    pageError("/invoices/new", "Damage deductions need an item and quantity so inventory can be tracked.");
+  }
+  if (deductions.some((deduction) => deduction.type === "return" && deduction.quantity > 0 && !deduction.item_id)) {
+    pageError("/invoices/new", "Return deductions with quantity need an item so inventory can be tracked.");
+  }
+
+  const deductionsTotal = deductions.reduce((total, deduction) => total + deduction.amount, 0);
+  if (deductionsTotal > subtotal) pageError("/invoices/new", "Returns and damage deductions cannot be higher than the invoice subtotal.");
+  const invoiceTotal = subtotal - deductionsTotal;
+
   const invoiceNumber = `MST-${Date.now()}`;
+  const invoiceDate = text(formData, "invoice_date") || new Date().toISOString().slice(0, 10);
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
       invoice_number: invoiceNumber,
       customer_id: customerId,
       subaccount_id: subaccountId,
-      invoice_date: text(formData, "invoice_date") || new Date().toISOString().slice(0, 10),
+      invoice_date: invoiceDate,
       subtotal,
-      total: subtotal,
+      returns_total: deductionsTotal,
+      total: invoiceTotal,
       notes: text(formData, "notes") || null
     })
     .select("id")
     .single();
   if (error) pageError("/invoices/new", `Invoice could not be saved: ${errorMessage(error)}`);
-  await writeAudit(supabase, "create", "invoice", invoice.id, `Created customer invoice ${invoiceNumber}`, { total: subtotal });
+  await writeAudit(supabase, "create", "invoice", invoice.id, `Created customer invoice ${invoiceNumber}`, { subtotal, deductionsTotal, total: invoiceTotal });
 
   let attachmentId: string | null = null;
   try {
@@ -720,7 +753,7 @@ export async function createInvoice(formData: FormData) {
     invoice_id: invoice.id,
     entry_type: "invoice",
     description: `Invoice ${invoiceNumber}`,
-    debit: subtotal,
+    debit: invoiceTotal,
     credit: 0
   });
   if (ledgerError) pageError("/invoices/new", `Customer balance entry could not be saved: ${errorMessage(ledgerError)}`);
@@ -737,15 +770,75 @@ export async function createInvoice(formData: FormData) {
   );
   if (movementError) pageError("/invoices/new", `Inventory deduction could not be saved: ${errorMessage(movementError)}`);
 
-  if (text(formData, "cash_sale") === "on") {
+  for (const deduction of deductions) {
+    if (deduction.type === "return") {
+      const { data: returnRow, error: returnError } = await supabase
+        .from("returns")
+        .insert({
+          invoice_id: invoice.id,
+          customer_id: customerId,
+          item_id: deduction.item_id,
+          quantity: deduction.quantity,
+          amount: deduction.amount,
+          reason: deduction.reason,
+          return_date: invoiceDate
+        })
+        .select("id")
+        .single();
+      if (returnError) pageError("/invoices/new", `Invoice return deduction could not be saved: ${errorMessage(returnError)}`);
+
+      if (deduction.item_id && deduction.quantity > 0) {
+        const { error: returnMovementError } = await supabase.from("inventory_movements").insert({
+          item_id: deduction.item_id,
+          movement_type: "return",
+          quantity_delta: deduction.quantity,
+          reference_type: "return",
+          reference_id: returnRow.id,
+          notes: `${invoiceNumber}: ${deduction.reason}`,
+          movement_date: invoiceDate
+        });
+        if (returnMovementError) pageError("/invoices/new", `Return inventory movement could not be saved: ${errorMessage(returnMovementError)}`);
+      }
+    } else {
+      const { data: damageRow, error: damageError } = await supabase
+        .from("damage_records")
+        .insert({
+          item_id: deduction.item_id,
+          customer_id: customerId,
+          subaccount_id: subaccountId,
+          quantity: deduction.quantity,
+          estimated_cost: deduction.amount,
+          balance_credit: deduction.amount,
+          reason: `${invoiceNumber}: ${deduction.reason}`,
+          damage_date: invoiceDate
+        })
+        .select("id")
+        .single();
+      if (damageError) pageError("/invoices/new", `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
+
+      const { error: damageMovementError } = await supabase.from("inventory_movements").insert({
+        item_id: deduction.item_id,
+        movement_type: "damage",
+        quantity_delta: -deduction.quantity,
+        unit_cost: deduction.amount,
+        reference_type: "damage",
+        reference_id: damageRow.id,
+        notes: `${invoiceNumber}: ${deduction.reason}`,
+        movement_date: invoiceDate
+      });
+      if (damageMovementError) pageError("/invoices/new", `Damage inventory movement could not be saved: ${errorMessage(damageMovementError)}`);
+    }
+  }
+
+  if (text(formData, "cash_sale") === "on" && invoiceTotal > 0) {
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
       .insert({
         customer_id: customerId,
         subaccount_id: subaccountId,
         method: "cash",
-        amount: subtotal,
-        payment_date: text(formData, "invoice_date") || new Date().toISOString().slice(0, 10),
+        amount: invoiceTotal,
+        payment_date: invoiceDate,
         reference: invoiceNumber,
         notes: "Cash sale invoice"
       })
@@ -761,14 +854,15 @@ export async function createInvoice(formData: FormData) {
       entry_type: "cash_sale_payment",
       description: `Cash payment for ${invoiceNumber}`,
       debit: 0,
-      credit: subtotal
+      credit: invoiceTotal
     });
     if (cashLedgerError) pageError("/invoices/new", `Cash sale ledger entry could not be saved: ${errorMessage(cashLedgerError)}`);
 
-    const { error: cashSaleError } = await supabase.from("cash_sales").insert({ invoice_id: invoice.id, amount: subtotal });
+    const { error: cashSaleError } = await supabase.from("cash_sales").insert({ invoice_id: invoice.id, amount: invoiceTotal });
     if (cashSaleError) pageError("/invoices/new", `Cash sale report entry could not be saved: ${errorMessage(cashSaleError)}`);
   }
   revalidatePath("/dashboard");
+  revalidatePath("/reports/daily");
   redirect(`/invoices/${invoice.id}/print`);
 }
 
