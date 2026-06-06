@@ -53,13 +53,13 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
       </table>
       {data.deductions.length ? (
         <section className="mt-6">
-          <h2 className="mb-2 text-lg font-bold">Returns / Damages</h2>
+          <h2 className="mb-2 text-lg font-bold">Returns</h2>
           <table>
-            <thead><tr><th>Type</th><th>Item / Description</th><th>Qty</th><th>Deduction</th></tr></thead>
+            <thead><tr><th>Stock</th><th>Item / Description</th><th>Qty</th><th>Deduction</th></tr></thead>
             <tbody>
               {data.deductions.map((deduction, index) => (
                 <tr key={`${deduction.type}-${deduction.item_id ?? "manual"}-${index}`}>
-                  <td className="capitalize">{deduction.type}</td>
+                  <td>{deduction.type === "damage" ? "Bad stock" : "Good stock"}</td>
                   <td>
                     <p>{deduction.item_name ?? deduction.reason}</p>
                     {deduction.item_name && deduction.reason ? <p className="text-sm text-[color:var(--muted-foreground)]">{deduction.reason}</p> : null}
@@ -77,7 +77,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
           {deductionsTotal > 0 ? (
             <div className="mb-3 grid gap-1 text-sm">
               <p className="flex justify-between gap-4"><span>Subtotal</span><span>{money(data.invoice.subtotal)}</span></p>
-              <p className="flex justify-between gap-4"><span>Returns / damage deductions</span><span>-{money(deductionsTotal)}</span></p>
+              <p className="flex justify-between gap-4"><span>Return deductions</span><span>-{money(deductionsTotal)}</span></p>
             </div>
           ) : null}
           <p className="text-sm uppercase">Total Amount</p>

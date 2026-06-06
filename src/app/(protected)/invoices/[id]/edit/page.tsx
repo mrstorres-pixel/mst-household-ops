@@ -23,7 +23,7 @@ export default async function EditInvoicePage({
 
   return (
     <>
-      <PageHeader title={`Edit Invoice ${data.invoice.invoice_number}`} description="Edit this invoice like you are making it: add or remove items, update prices, and manage returns or damages in one place." />
+      <PageHeader title={`Edit Invoice ${data.invoice.invoice_number}`} description="Edit this invoice like you are making it: add or remove items, update prices, and manage good-stock or bad-stock returns in one place." />
       <PageNotice error={notices.error} success={notices.success} />
       <div className="mb-5 flex flex-wrap gap-2">
         <Link className="btn btn-secondary" href={`/invoices/${id}/print`}>Back to Print View</Link>

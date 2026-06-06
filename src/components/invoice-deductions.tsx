@@ -10,7 +10,7 @@ type ItemOption = {
 };
 
 type DeductionLine = {
-  type: "return" | "damage";
+  stockCondition: "good" | "bad";
   itemId: string;
   quantity: string;
   amount: string;
@@ -26,7 +26,7 @@ type InitialDeductionLine = {
 };
 
 const emptyLine = (): DeductionLine => ({
-  type: "return",
+  stockCondition: "good",
   itemId: "",
   quantity: "",
   amount: "",
@@ -35,7 +35,7 @@ const emptyLine = (): DeductionLine => ({
 
 function hydrateLine(line: InitialDeductionLine): DeductionLine {
   return {
-    type: line.type === "damage" ? "damage" : "return",
+    stockCondition: line.type === "damage" ? "bad" : "good",
     itemId: line.item_id ?? "",
     quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
     amount: line.amount === null || line.amount === undefined ? "" : String(line.amount),
@@ -58,21 +58,29 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
   return (
     <section className="card">
       <div className="border-b border-[color:var(--border)] p-4">
-        <h3 className="text-xl font-bold">Returns / Damage Deductions</h3>
+        <h3 className="text-xl font-bold">Returns</h3>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Type</th><th>Item</th><th>Qty</th><th>Deduction Amount</th><th>Reason</th><th>Action</th></tr>
+            <tr><th>Stock</th><th>Item</th><th>Qty</th><th>Deduction Amount</th><th>Reason</th><th>Action</th></tr>
           </thead>
           <tbody>
             {lines.map((line, index) => (
               <tr key={index}>
                 <td>
-                  <select className="input" name="deduction_type" value={line.type} onChange={(event) => updateLine(index, { type: event.target.value as DeductionLine["type"] })}>
-                    <option value="return">Return</option>
-                    <option value="damage">Damage</option>
-                  </select>
+                  <input type="hidden" name="deduction_type" value={line.stockCondition === "good" ? "return" : "damage"} />
+                  <label className="flex items-center gap-2 text-sm font-semibold">
+                    <input
+                      name="deduction_good_stock"
+                      type="checkbox"
+                      value="on"
+                      checked={line.stockCondition === "good"}
+                      onChange={(event) => updateLine(index, { stockCondition: event.target.checked ? "good" : "bad" })}
+                    />
+                    Good stock
+                  </label>
+                  <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">{line.stockCondition === "good" ? "Adds back to inventory" : "Bad / supplier issue"}</p>
                 </td>
                 <td>
                   <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>

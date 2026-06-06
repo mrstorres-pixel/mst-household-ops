@@ -23,7 +23,7 @@ export default async function EditSupplierInvoicePage({
 
   return (
     <>
-      <PageHeader title={`Edit Supplier Invoice ${invoiceLabel}`} description="Correct a supplier invoice line. Quantity changes post stock corrections automatically." />
+      <PageHeader title={`Edit Supplier Invoice ${invoiceLabel}`} description="Correct supplier invoice lines. Quantity or cost changes post stock movement history automatically." />
       <PageNotice error={notices.error} success={notices.success} />
       <div className="mb-5 flex flex-wrap gap-2">
         <Link className="btn btn-secondary" href={`/suppliers/invoices/${id}`}>Back to Details</Link>
@@ -39,9 +39,9 @@ export default async function EditSupplierInvoicePage({
         <section className="card p-5">
           <div className="grid gap-3 md:grid-cols-4">
             <p><strong>Supplier</strong><br />{invoice.suppliers?.name}</p>
-            <p><strong>Item</strong><br />{invoice.items?.name}</p>
-            <p><strong>Current Line Total</strong><br />{money(invoice.total)}</p>
+            <p><strong>Lines</strong><br />{data.relatedLines.length}</p>
             <p><strong>Grouped Invoice Total</strong><br />{money(data.invoiceTotal)}</p>
+            <p><strong>Remaining</strong><br />{money(data.remaining)}</p>
           </div>
         </section>
 
@@ -54,14 +54,26 @@ export default async function EditSupplierInvoicePage({
             <label>Invoice Date</label>
             <input className="input" name="order_date" type="date" defaultValue={invoice.order_date} />
           </div>
-          <div className="field">
-            <label>Qty</label>
-            <input className="input" name="quantity" type="number" step="0.01" min="0.01" defaultValue={invoice.quantity} />
-          </div>
-          <div className="field">
-            <label>Unit Cost</label>
-            <input className="input" name="unit_cost" type="number" step="0.01" min="0" defaultValue={invoice.unit_cost} />
-          </div>
+        </section>
+
+        <section className="card table-wrap">
+          <table>
+            <thead><tr><th>Item</th><th>Qty</th><th>Unit Cost</th><th>Current Total</th></tr></thead>
+            <tbody>
+              {data.relatedLines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <input type="hidden" name="purchase_line_id" value={line.id} />
+                    <strong>{line.items?.name}</strong>
+                    <br /><span className="text-sm text-[color:var(--muted-foreground)]">{line.items?.sku ?? "No SKU"}</span>
+                  </td>
+                  <td><input className="input" name="quantity" type="number" step="0.01" min="0.01" defaultValue={line.quantity} /></td>
+                  <td><input className="input" name="unit_cost" type="number" step="0.01" min="0" defaultValue={line.unit_cost} /></td>
+                  <td>{money(line.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
 
         <div>

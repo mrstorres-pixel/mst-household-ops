@@ -740,14 +740,14 @@ export async function createInvoice(formData: FormData) {
     .filter((deduction) => deduction.amount > 0)
     .map((deduction, sortOrder) => ({ ...deduction, sort_order: sortOrder }));
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
-    pageError("/invoices/new", "Damage deductions need an item and quantity so inventory can be tracked.");
+    pageError("/invoices/new", "Bad-stock returns need an item and quantity so the return can be tracked.");
   }
   if (deductions.some((deduction) => deduction.type === "return" && deduction.quantity > 0 && !deduction.item_id)) {
     pageError("/invoices/new", "Return deductions with quantity need an item so inventory can be tracked.");
   }
 
   const deductionsTotal = deductions.reduce((total, deduction) => total + deduction.amount, 0);
-  if (deductionsTotal > subtotal) pageError("/invoices/new", "Returns and damage deductions cannot be higher than the invoice subtotal.");
+  if (deductionsTotal > subtotal) pageError("/invoices/new", "Return deductions cannot be higher than the invoice subtotal.");
   const invoiceTotal = subtotal - deductionsTotal;
 
   const invoiceNumber = `MST-${Date.now()}`;
@@ -864,17 +864,8 @@ export async function createInvoice(formData: FormData) {
       if (damageError) pageError("/invoices/new", `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
       if (!damageRow) pageError("/invoices/new", "Invoice damage deduction was saved without an ID.");
 
-      const { error: damageMovementError } = await supabase.from("inventory_movements").insert({
-        item_id: deduction.item_id,
-        movement_type: "damage",
-        quantity_delta: -deduction.quantity,
-        unit_cost: deduction.amount,
-        reference_type: "damage",
-        reference_id: damageRow.id,
-        notes: `${invoiceNumber}: ${deduction.reason}`,
-        movement_date: invoiceDate
-      });
-      if (damageMovementError) pageError("/invoices/new", `Damage inventory movement could not be saved: ${errorMessage(damageMovementError)}`);
+      // Bad-stock customer returns are already out of sellable inventory from the original sale.
+      // Track the defect without deducting stock a second time.
     }
   }
 
@@ -966,7 +957,7 @@ export async function updatePostedInvoice(formData: FormData) {
     .filter((deduction) => deduction.amount > 0)
     .map((deduction, sortOrder) => ({ ...deduction, sort_order: sortOrder }));
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
-    pageError(`/invoices/${invoiceId}/edit`, "Damage deductions need an item and quantity so inventory can be tracked.");
+    pageError(`/invoices/${invoiceId}/edit`, "Bad-stock returns need an item and quantity so the return can be tracked.");
   }
   if (deductions.some((deduction) => deduction.type === "return" && deduction.quantity > 0 && !deduction.item_id)) {
     pageError(`/invoices/${invoiceId}/edit`, "Return deductions with quantity need an item so inventory can be tracked.");
@@ -975,7 +966,7 @@ export async function updatePostedInvoice(formData: FormData) {
   const subtotal = lines.reduce((sum, line) => sum + line.line_total, 0);
   if (subtotal <= 0) pageError(`/invoices/${invoiceId}/edit`, "Invoice total must be greater than zero.");
   const deductionsTotal = deductions.reduce((sum, deduction) => sum + deduction.amount, 0);
-  if (deductionsTotal > subtotal) pageError(`/invoices/${invoiceId}/edit`, "Returns and damage deductions cannot be higher than the invoice subtotal.");
+  if (deductionsTotal > subtotal) pageError(`/invoices/${invoiceId}/edit`, "Return deductions cannot be higher than the invoice subtotal.");
   const invoiceTotal = subtotal - deductionsTotal;
   const invoiceDate = text(formData, "invoice_date") || invoice.invoice_date || new Date().toISOString().slice(0, 10);
 
@@ -1096,17 +1087,8 @@ export async function updatePostedInvoice(formData: FormData) {
       if (damageError) pageError(`/invoices/${invoiceId}/edit`, `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
       if (!damageRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice damage deduction was saved without an ID.");
 
-      const { error: damageMovementError } = await supabase.from("inventory_movements").insert({
-        item_id: deduction.item_id,
-        movement_type: "damage",
-        quantity_delta: -deduction.quantity,
-        unit_cost: deduction.amount,
-        reference_type: "damage",
-        reference_id: damageRow.id,
-        notes: `${invoice.invoice_number}: ${deduction.reason}`,
-        movement_date: invoiceDate
-      });
-      if (damageMovementError) pageError(`/invoices/${invoiceId}/edit`, `Damage inventory movement could not be saved: ${errorMessage(damageMovementError)}`);
+      // Bad-stock customer returns are already out of sellable inventory from the original sale.
+      // Track the defect without deducting stock a second time.
     }
   }
 
@@ -1198,44 +1180,91 @@ export async function updateSupplierInvoice(formData: FormData) {
     .single();
   if (existingError || !existing) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice could not be loaded: ${errorMessage(existingError)}`);
 
-  const quantity = asNumber(formData.get("quantity"));
-  const unitCost = asNumber(formData.get("unit_cost"));
   const orderDate = text(formData, "order_date") || new Date().toISOString().slice(0, 10);
   const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
-  if (quantity <= 0) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice quantity must be greater than zero.");
-  if (unitCost < 0) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice unit cost cannot be negative.");
 
-  const { error: updateError } = await supabase
+  let relatedQuery = supabase
     .from("purchase_orders")
-    .update({
-      quantity,
-      unit_cost: unitCost,
-      total: quantity * unitCost,
-      order_date: orderDate,
-      supplier_invoice_number: supplierInvoiceNumber
-    })
-    .eq("id", purchaseOrderId);
-  if (updateError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice could not be updated: ${errorMessage(updateError)}`);
+    .select("id, supplier_id, item_id, quantity, unit_cost, total, supplier_invoice_number")
+    .eq("supplier_id", existing.supplier_id);
+  if (existing.supplier_invoice_number) {
+    relatedQuery = relatedQuery.eq("supplier_invoice_number", existing.supplier_invoice_number);
+  } else {
+    relatedQuery = relatedQuery.eq("id", purchaseOrderId);
+  }
 
-  const quantityDelta = quantity - Number(existing.quantity ?? 0);
-  if (quantityDelta !== 0) {
-    const { error: movementError } = await supabase.from("inventory_movements").insert({
-      item_id: existing.item_id,
+  const { data: relatedLines, error: relatedError } = await relatedQuery;
+  if (relatedError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice lines could not be loaded: ${errorMessage(relatedError)}`);
+
+  const existingLines = relatedLines?.length ? relatedLines : [existing];
+  const lineIds = formData.getAll("purchase_line_id").map(String);
+  const quantities = formData.getAll("quantity").map(asNumber);
+  const unitCosts = formData.getAll("unit_cost").map(asNumber);
+  const submittedLineIds = lineIds.length ? lineIds : [purchaseOrderId];
+
+  const lineUpdates = submittedLineIds.map((lineId, index) => {
+    const line = existingLines.find((candidate) => candidate.id === lineId);
+    return {
+      line,
+      quantity: quantities[index] ?? 0,
+      unitCost: unitCosts[index] ?? 0
+    };
+  });
+
+  if (lineUpdates.some((update) => !update.line)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "One supplier invoice line could not be matched.");
+  if (lineUpdates.some((update) => update.quantity <= 0)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice quantities must be greater than zero.");
+  if (lineUpdates.some((update) => update.unitCost < 0)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice unit cost cannot be negative.");
+
+  for (const update of lineUpdates) {
+    const line = update.line!;
+    const { error: updateError } = await supabase
+      .from("purchase_orders")
+      .update({
+        quantity: update.quantity,
+        unit_cost: update.unitCost,
+        total: update.quantity * update.unitCost,
+        order_date: orderDate,
+        supplier_invoice_number: supplierInvoiceNumber
+      })
+      .eq("id", line.id);
+    if (updateError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice could not be updated: ${errorMessage(updateError)}`);
+  }
+
+  const movementRows: Array<{
+    item_id: string;
+    movement_type: "adjustment";
+    quantity_delta: number;
+    unit_cost: number;
+    reference_type: string;
+    reference_id: string;
+    notes: string;
+    movement_date: string;
+  }> = [];
+  for (const update of lineUpdates) {
+    const line = update.line!;
+    const quantityDelta = update.quantity - Number(line.quantity ?? 0);
+    const costChanged = update.unitCost !== Number(line.unit_cost ?? 0);
+    if (quantityDelta === 0 && !costChanged) continue;
+    movementRows.push({
+      item_id: line.item_id,
       movement_type: "adjustment",
       quantity_delta: quantityDelta,
-      unit_cost: unitCost,
+      unit_cost: update.unitCost,
       reference_type: "supplier_invoice_correction",
-      reference_id: purchaseOrderId,
+      reference_id: line.id,
       notes: `Correction for supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
       movement_date: orderDate
     });
+  }
+
+  if (movementRows.length) {
+    const { error: movementError } = await supabase.from("inventory_movements").insert(movementRows);
     if (movementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice stock correction could not be saved: ${errorMessage(movementError)}`);
   }
 
   await writeAudit(supabase, "update", "supplier_invoice", purchaseOrderId, `Edited supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`, {
-    old_quantity: existing.quantity,
-    quantity,
-    unit_cost: unitCost
+    line_count: lineUpdates.length,
+    supplier_invoice_number: supplierInvoiceNumber
   });
   revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
   revalidatePath(`/suppliers/invoices/${purchaseOrderId}/edit`);
