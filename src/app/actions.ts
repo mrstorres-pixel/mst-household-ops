@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { asNumber } from "@/lib/format";
+import { chequeBalanceEntry, projectedStockShortages, shouldBlockInvoiceDeleteForPayments, type StockDelta } from "@/lib/business-rules";
+import { asNumber, todayISO } from "@/lib/format";
 import { hasSupabaseEnv } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeSku } from "@/lib/sku";
@@ -108,6 +109,61 @@ async function writeAudit(
   } catch {
     // Audit logging should never block field operations.
   }
+}
+
+async function ensureAvailableStock(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  deltas: StockDelta[],
+  errorPath: string
+) {
+  const outgoing = deltas.filter((delta) => Number(delta.quantity_delta ?? 0) < 0);
+  if (!outgoing.length) return;
+  const itemIds = Array.from(new Set(deltas.map((delta) => delta.item_id).filter(Boolean)));
+  const { data: items, error } = await supabase
+    .from("items")
+    .select("id, name, current_quantity")
+    .in("id", itemIds);
+  if (error) pageError(errorPath, `Stock levels could not be checked: ${errorMessage(error)}`);
+  const shortages = projectedStockShortages(
+    (items ?? []).map((item) => ({
+      item_id: String(item.id),
+      name: String(item.name ?? "Item"),
+      current_quantity: Number(item.current_quantity ?? 0)
+    })),
+    deltas
+  );
+  if (shortages.length) {
+    const shortage = shortages[0];
+    pageError(
+      errorPath,
+      `${shortage.name} does not have enough stock. Current: ${shortage.current_quantity}. This would become ${shortage.projected_quantity}.`
+    );
+  }
+}
+
+async function insertInventoryMovementsChecked(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rows: Record<string, unknown>[],
+  errorPath: string,
+  message: string
+) {
+  if (!rows.length) return;
+  const rpcResult = await supabase.rpc("post_inventory_movements_checked", { movements: rows });
+  if (!rpcResult.error) return;
+  if (!isMissingColumnError(rpcResult.error) && rpcResult.error.code !== "PGRST202") {
+    pageError(errorPath, `${message}: ${errorMessage(rpcResult.error)}`);
+  }
+
+  await ensureAvailableStock(
+    supabase,
+    rows.map((row) => ({
+      item_id: String(row.item_id),
+      quantity_delta: Number(row.quantity_delta ?? 0)
+    })),
+    errorPath
+  );
+  const { error } = await supabase.from("inventory_movements").insert(rows);
+  if (error) pageError(errorPath, `${message}: ${errorMessage(error)}`);
 }
 
 async function uploadOptionalFile(
@@ -325,7 +381,7 @@ export async function adjustCustomerSubaccountBalance(formData: FormData) {
   const subaccountId = text(formData, "subaccount_id");
   const direction = text(formData, "direction");
   const amount = asNumber(formData.get("amount"));
-  const entryDate = text(formData, "entry_date") || new Date().toISOString().slice(0, 10);
+  const entryDate = text(formData, "entry_date") || todayISO();
   const notes = text(formData, "notes");
   if (!subaccountId) pageError(`/customers/${customerId}`, "Select a sub-balance before adjusting.");
   if (amount <= 0) pageError(`/customers/${customerId}`, "Adjustment amount must be greater than zero.");
@@ -364,7 +420,7 @@ export async function recordCustomerOpeningBalance(formData: FormData) {
   const subaccountId = text(formData, "subaccount_id") || null;
   const direction = text(formData, "direction");
   const amount = asNumber(formData.get("amount"));
-  const entryDate = text(formData, "entry_date") || new Date().toISOString().slice(0, 10);
+  const entryDate = text(formData, "entry_date") || todayISO();
   const notes = text(formData, "notes");
   if (!customerId) pageError("/customers", "Select a customer before recording an opening balance.");
   if (amount <= 0) pageError(`/customers/${customerId}`, "Opening balance amount must be greater than zero.");
@@ -619,7 +675,7 @@ export async function adjustItemQuantity(formData: FormData) {
   const quantityDelta = newQuantity - currentQuantity;
   if (quantityDelta === 0) pageSuccess("/inventory", `No stock change needed for ${item.name}.`);
 
-  const { error: movementError } = await supabase.from("inventory_movements").insert({
+  await insertInventoryMovementsChecked(supabase, [{
     item_id: itemId,
     movement_type: "adjustment",
     quantity_delta: quantityDelta,
@@ -627,8 +683,7 @@ export async function adjustItemQuantity(formData: FormData) {
     reference_type: "manual_adjustment",
     reference_id: itemId,
     notes: reason
-  });
-  if (movementError) pageError("/inventory", `Stock quantity could not be adjusted: ${errorMessage(movementError)}`);
+  }], "/inventory", "Stock quantity could not be adjusted");
 
   await writeAudit(supabase, "adjust_stock", "item", itemId, `Adjusted stock for ${item.name}`, {
     previous_quantity: currentQuantity,
@@ -751,7 +806,7 @@ export async function createInvoice(formData: FormData) {
   const invoiceTotal = subtotal - deductionsTotal;
 
   const invoiceNumber = `MST-${Date.now()}`;
-  const invoiceDate = text(formData, "invoice_date") || new Date().toISOString().slice(0, 10);
+  const invoiceDate = text(formData, "invoice_date") || todayISO();
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
@@ -799,17 +854,19 @@ export async function createInvoice(formData: FormData) {
   });
   if (ledgerError) pageError("/invoices/new", `Customer balance entry could not be saved: ${errorMessage(ledgerError)}`);
 
-  const { error: movementError } = await supabase.from("inventory_movements").insert(
-    lines.map((line) => ({
+  const saleMovementRows = lines.map((line) => ({
       item_id: line.item_id,
       movement_type: "sale",
       quantity_delta: -line.quantity,
       reference_type: "invoice",
       reference_id: invoice.id,
       notes: invoiceNumber
-    }))
-  );
-  if (movementError) pageError("/invoices/new", `Inventory deduction could not be saved: ${errorMessage(movementError)}`);
+    }));
+  const returnMovementRows = deductions
+    .filter((deduction) => deduction.type === "return" && deduction.item_id && deduction.quantity > 0)
+    .map((deduction) => ({ item_id: deduction.item_id!, quantity_delta: deduction.quantity }));
+  await ensureAvailableStock(supabase, [...saleMovementRows, ...returnMovementRows], "/invoices/new");
+  await insertInventoryMovementsChecked(supabase, saleMovementRows, "/invoices/new", "Inventory deduction could not be saved");
 
   for (const deduction of deductions) {
     if (deduction.type === "return") {
@@ -832,7 +889,7 @@ export async function createInvoice(formData: FormData) {
       if (!returnRow) pageError("/invoices/new", "Invoice return deduction was saved without an ID.");
 
       if (deduction.item_id && deduction.quantity > 0) {
-        const { error: returnMovementError } = await supabase.from("inventory_movements").insert({
+        await insertInventoryMovementsChecked(supabase, [{
           item_id: deduction.item_id,
           movement_type: "return",
           quantity_delta: deduction.quantity,
@@ -840,8 +897,7 @@ export async function createInvoice(formData: FormData) {
           reference_id: returnRow.id,
           notes: `${invoiceNumber}: ${deduction.reason}`,
           movement_date: invoiceDate
-        });
-        if (returnMovementError) pageError("/invoices/new", `Return inventory movement could not be saved: ${errorMessage(returnMovementError)}`);
+        }], "/invoices/new", "Return inventory movement could not be saved");
       }
     } else {
       const { data: damageRow, error: damageError } = await insertOneWithSchemaFallback(
@@ -968,7 +1024,7 @@ export async function updatePostedInvoice(formData: FormData) {
   const deductionsTotal = deductions.reduce((sum, deduction) => sum + deduction.amount, 0);
   if (deductionsTotal > subtotal) pageError(`/invoices/${invoiceId}/edit`, "Return deductions cannot be higher than the invoice subtotal.");
   const invoiceTotal = subtotal - deductionsTotal;
-  const invoiceDate = text(formData, "invoice_date") || invoice.invoice_date || new Date().toISOString().slice(0, 10);
+  const invoiceDate = text(formData, "invoice_date") || invoice.invoice_date || todayISO();
 
   const { data: previousMovements } = await supabase
     .from("inventory_movements")
@@ -986,8 +1042,7 @@ export async function updatePostedInvoice(formData: FormData) {
       movement_date: invoiceDate
     }));
   if (stockReversals.length) {
-    const { error: reversalError } = await supabase.from("inventory_movements").insert(stockReversals);
-    if (reversalError) pageError(`/invoices/${invoiceId}/edit`, `Existing invoice stock reversal could not be saved: ${errorMessage(reversalError)}`);
+    await insertInventoryMovementsChecked(supabase, stockReversals, `/invoices/${invoiceId}/edit`, "Existing invoice stock reversal could not be saved");
   }
 
   await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
@@ -1031,8 +1086,11 @@ export async function updatePostedInvoice(formData: FormData) {
     notes: invoice.invoice_number,
     movement_date: invoiceDate
   }));
-  const { error: movementError } = await supabase.from("inventory_movements").insert(saleMovements);
-  if (movementError) pageError(`/invoices/${invoiceId}/edit`, `Inventory deduction could not be saved: ${errorMessage(movementError)}`);
+  const editedReturnMovements = deductions
+    .filter((deduction) => deduction.type === "return" && deduction.item_id && deduction.quantity > 0)
+    .map((deduction) => ({ item_id: deduction.item_id!, quantity_delta: deduction.quantity }));
+  await ensureAvailableStock(supabase, [...saleMovements, ...editedReturnMovements], `/invoices/${invoiceId}/edit`);
+  await insertInventoryMovementsChecked(supabase, saleMovements, `/invoices/${invoiceId}/edit`, "Inventory deduction could not be saved");
 
   for (const deduction of deductions) {
     if (deduction.type === "return") {
@@ -1055,7 +1113,7 @@ export async function updatePostedInvoice(formData: FormData) {
       if (!returnRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice return deduction was saved without an ID.");
 
       if (deduction.item_id && deduction.quantity > 0) {
-        const { error: returnMovementError } = await supabase.from("inventory_movements").insert({
+        await insertInventoryMovementsChecked(supabase, [{
           item_id: deduction.item_id,
           movement_type: "return",
           quantity_delta: deduction.quantity,
@@ -1063,8 +1121,7 @@ export async function updatePostedInvoice(formData: FormData) {
           reference_id: returnRow.id,
           notes: `${invoice.invoice_number}: ${deduction.reason}`,
           movement_date: invoiceDate
-        });
-        if (returnMovementError) pageError(`/invoices/${invoiceId}/edit`, `Return inventory movement could not be saved: ${errorMessage(returnMovementError)}`);
+        }], `/invoices/${invoiceId}/edit`, "Return inventory movement could not be saved");
       }
     } else {
       const { data: damageRow, error: damageError } = await insertOneWithSchemaFallback(
@@ -1129,6 +1186,18 @@ export async function deleteCustomerInvoice(formData: FormData) {
     .single();
   if (invoiceError || !invoice) pageError("/customers", `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
 
+  const { data: allocations, error: allocationError } = await supabase
+    .from("payment_allocations")
+    .select("amount, payments(method, reference)")
+    .eq("invoice_id", invoiceId);
+  if (allocationError) pageError(`/invoices/${invoiceId}/edit`, `Invoice payments could not be checked: ${errorMessage(allocationError)}`);
+  if (shouldBlockInvoiceDeleteForPayments(allocations ?? [], invoice.invoice_number)) {
+    pageError(
+      `/invoices/${invoiceId}/edit`,
+      "This invoice has allocated customer payments. Remove or correct the payment allocation before deleting the invoice."
+    );
+  }
+
   const { data: movements } = await supabase
     .from("inventory_movements")
     .select("item_id, quantity_delta")
@@ -1144,8 +1213,7 @@ export async function deleteCustomerInvoice(formData: FormData) {
       notes: `Deleted invoice ${invoice.invoice_number}`
     }));
   if (reversals.length) {
-    const { error: reversalError } = await supabase.from("inventory_movements").insert(reversals);
-    if (reversalError) pageError(`/invoices/${invoiceId}/edit`, `Invoice stock reversal could not be saved: ${errorMessage(reversalError)}`);
+    await insertInventoryMovementsChecked(supabase, reversals, `/invoices/${invoiceId}/edit`, "Invoice stock reversal could not be saved");
   }
 
   await supabase.from("payment_allocations").delete().eq("invoice_id", invoiceId);
@@ -1180,7 +1248,7 @@ export async function updateSupplierInvoice(formData: FormData) {
     .single();
   if (existingError || !existing) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice could not be loaded: ${errorMessage(existingError)}`);
 
-  const orderDate = text(formData, "order_date") || new Date().toISOString().slice(0, 10);
+  const orderDate = text(formData, "order_date") || todayISO();
   const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
 
   let relatedQuery = supabase
@@ -1260,8 +1328,7 @@ export async function updateSupplierInvoice(formData: FormData) {
   }
 
   if (movementRows.length) {
-    const { error: movementError } = await supabase.from("inventory_movements").insert(movementRows);
-    if (movementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice stock correction could not be saved: ${errorMessage(movementError)}`);
+    await insertInventoryMovementsChecked(supabase, movementRows, `/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice stock correction could not be saved");
   }
 
   const deductionIds = formData.getAll("supplier_deduction_id").map(String);
@@ -1416,8 +1483,7 @@ export async function updateSupplierInvoice(formData: FormData) {
   }
 
   if (adjustmentMovementRows.length) {
-    const { error: adjustmentMovementError } = await supabase.from("inventory_movements").insert(adjustmentMovementRows);
-    if (adjustmentMovementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier deduction stock corrections could not be saved: ${errorMessage(adjustmentMovementError)}`);
+    await insertInventoryMovementsChecked(supabase, adjustmentMovementRows, `/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier deduction stock corrections could not be saved");
   }
 
   await writeAudit(supabase, "update", "supplier_invoice", purchaseOrderId, `Edited supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`, {
@@ -1470,8 +1536,7 @@ export async function deleteSupplierInvoice(formData: FormData) {
       notes: `Deleted supplier invoice ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`
     }));
   if (purchaseReversals.length) {
-    const { error: reversalError } = await supabase.from("inventory_movements").insert(purchaseReversals);
-    if (reversalError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier invoice stock reversal could not be saved: ${errorMessage(reversalError)}`);
+    await insertInventoryMovementsChecked(supabase, purchaseReversals, `/suppliers/invoices/${purchaseOrderId}`, "Supplier invoice stock reversal could not be saved");
   }
 
   if (purchaseIds.length) {
@@ -1490,8 +1555,7 @@ export async function deleteSupplierInvoice(formData: FormData) {
         notes: `Deleted supplier invoice adjustment ${invoice.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`
       }));
     if (adjustmentReversals.length) {
-      const { error: adjustmentReversalError } = await supabase.from("inventory_movements").insert(adjustmentReversals);
-      if (adjustmentReversalError) pageError(`/suppliers/invoices/${purchaseOrderId}`, `Supplier deduction stock reversal could not be saved: ${errorMessage(adjustmentReversalError)}`);
+      await insertInventoryMovementsChecked(supabase, adjustmentReversals, `/suppliers/invoices/${purchaseOrderId}`, "Supplier deduction stock reversal could not be saved");
     }
 
     await supabase.from("supplier_payments").delete().in("purchase_order_id", purchaseIds);
@@ -1544,7 +1608,7 @@ export async function recordPayment(formData: FormData) {
       subaccount_id: subaccountId,
       method,
       amount,
-      payment_date: text(formData, "payment_date") || new Date().toISOString().slice(0, 10),
+      payment_date: text(formData, "payment_date") || todayISO(),
       reference: text(formData, "reference") || null,
       notes: text(formData, "notes") || null
     })
@@ -1591,7 +1655,7 @@ export async function recordPayment(formData: FormData) {
       cheque_number: text(formData, "reference") || null,
       bank_name: text(formData, "bank_name") || null,
       amount,
-      received_date: text(formData, "payment_date") || new Date().toISOString().slice(0, 10),
+      received_date: text(formData, "payment_date") || todayISO(),
       attachment_file_id: attachmentId
     }).select("id").single();
     if (chequeError) pageError("/payments", `Cheque record could not be saved: ${errorMessage(chequeError)}`);
@@ -1614,16 +1678,40 @@ export async function updateChequeStatus(formData: FormData) {
   if (!chequeId) pageError("/cheques", "Select a cheque before changing status.");
   if (!["received", "redeemed", "bounced", "cancelled"].includes(status)) pageError("/cheques", "Select a valid cheque status.");
 
+  const { data: cheque, error: chequeError } = await supabase
+    .from("cheques")
+    .select("id, status, amount, customer_id, payment_id, payments(subaccount_id)")
+    .eq("id", chequeId)
+    .single();
+  if (chequeError || !cheque) pageError("/cheques", `Cheque could not be loaded: ${errorMessage(chequeError)}`);
+
   const { error } = await supabase
     .from("cheques")
     .update({
       status,
-      redeemed_date: status === "redeemed" ? new Date().toISOString().slice(0, 10) : null
+      redeemed_date: status === "redeemed" ? todayISO() : null
     })
     .eq("id", chequeId);
   if (error) pageError("/cheques", `Cheque status could not be updated: ${errorMessage(error)}`);
+
+  const balanceEntry = chequeBalanceEntry(String(cheque.status ?? ""), status, Number(cheque.amount ?? 0));
+  if (balanceEntry) {
+    const paymentRelation = Array.isArray(cheque.payments) ? cheque.payments[0] : cheque.payments;
+    const { error: ledgerError } = await supabase.from("customer_ledger_entries").insert({
+      customer_id: cheque.customer_id,
+      subaccount_id: (paymentRelation as { subaccount_id?: string | null } | null | undefined)?.subaccount_id ?? null,
+      payment_id: cheque.payment_id,
+      entry_type: balanceEntry.entryType,
+      description: `Cheque ${status}`,
+      debit: balanceEntry.debit,
+      credit: balanceEntry.credit,
+      entry_date: todayISO()
+    });
+    if (ledgerError) pageError("/cheques", `Cheque balance correction could not be saved: ${errorMessage(ledgerError)}`);
+  }
   await writeAudit(supabase, "status", "cheque", chequeId, `Updated cheque status to ${status}`);
   revalidatePath("/cheques");
+  revalidatePath(`/customers/${cheque.customer_id}`);
   pageSuccess("/cheques", "Cheque status updated.");
 }
 
@@ -1666,13 +1754,13 @@ export async function recordDamage(formData: FormData) {
       missing_parts: missingParts || null,
       repair_charge: repairCharge,
       reason: text(formData, "reason") || null,
-      damage_date: text(formData, "damage_date") || new Date().toISOString().slice(0, 10)
+      damage_date: text(formData, "damage_date") || todayISO()
     })
     .select("id")
     .single();
   if (damageError) pageError("/inventory/damages", `Damage record could not be saved: ${errorMessage(damageError)}`);
   await writeAudit(supabase, "create", "damage_record", damage?.id ?? null, "Recorded damage/return", { quantity, balanceCredit, repairCharge });
-  const { error: movementError } = await supabase.from("inventory_movements").insert({
+  await insertInventoryMovementsChecked(supabase, [{
     item_id: itemId,
     movement_type: "damage",
     quantity_delta: -quantity,
@@ -1680,8 +1768,7 @@ export async function recordDamage(formData: FormData) {
     reference_type: "damage",
     reference_id: damage?.id,
     notes: text(formData, "reason") || null
-  });
-  if (movementError) pageError("/inventory/damages", `Inventory damage movement could not be saved: ${errorMessage(movementError)}`);
+  }], "/inventory/damages", "Inventory damage movement could not be saved");
   if (customerId && balanceCredit > 0) {
     const { error: creditError } = await supabase.from("customer_ledger_entries").insert({
       customer_id: customerId,
@@ -1747,7 +1834,7 @@ export async function recordSupplierPurchase(formData: FormData) {
   const quantities = formData.getAll("quantity").map(asNumber);
   const unitCosts = formData.getAll("unit_cost").map(asNumber);
   const supplierInvoiceNumber = text(formData, "supplier_invoice_number") || null;
-  const orderDate = text(formData, "order_date") || new Date().toISOString().slice(0, 10);
+  const orderDate = text(formData, "order_date") || todayISO();
   const lines = itemIds
     .map((itemId, index) => ({
       supplier_id: supplierId,
@@ -1808,7 +1895,8 @@ export async function recordSupplierPurchase(formData: FormData) {
     if (attachmentError) pageError("/suppliers", `Supplier invoice attachment link could not be saved: ${errorMessage(attachmentError)}`);
   }
   await writeAudit(supabase, "create", "supplier_invoice", firstPurchaseId, `Recorded supplier invoice ${supplierInvoiceNumber || ""}`, { total, deductions_total: deductionsTotal, line_count: postedPurchases.length, order_date: orderDate });
-  const { error: movementError } = await supabase.from("inventory_movements").insert(
+  await insertInventoryMovementsChecked(
+    supabase,
     postedPurchases.map((purchase) => ({
       item_id: purchase.item_id,
       movement_type: "purchase",
@@ -1817,9 +1905,10 @@ export async function recordSupplierPurchase(formData: FormData) {
       reference_type: "purchase_order",
       reference_id: purchase.id,
       movement_date: orderDate
-    }))
+    })),
+    "/suppliers",
+    "Supplier stock movement could not be saved"
   );
-  if (movementError) pageError("/suppliers", `Supplier stock movement could not be saved: ${errorMessage(movementError)}`);
 
   if (deductions.length) {
     const { data: adjustments, error: adjustmentError } = await supabase
@@ -1839,7 +1928,8 @@ export async function recordSupplierPurchase(formData: FormData) {
 
     const stockAdjustments = (adjustments ?? []).filter((adjustment) => adjustment.item_id && Number(adjustment.quantity ?? 0) > 0);
     if (stockAdjustments.length) {
-      const { error: deductionMovementError } = await supabase.from("inventory_movements").insert(
+      await insertInventoryMovementsChecked(
+        supabase,
         stockAdjustments.map((adjustment) => ({
           item_id: adjustment.item_id,
           movement_type: adjustment.adjustment_type === "damage" ? "damage" : "adjustment",
@@ -1849,9 +1939,10 @@ export async function recordSupplierPurchase(formData: FormData) {
           reference_id: adjustment.id,
           notes: `${supplierInvoiceNumber || "Supplier invoice"} ${adjustment.adjustment_type}`,
           movement_date: orderDate
-        }))
+        })),
+        "/suppliers",
+        "Supplier deduction stock movement could not be saved"
       );
-      if (deductionMovementError) pageError("/suppliers", `Supplier deduction stock movement could not be saved: ${errorMessage(deductionMovementError)}`);
     }
   }
 
@@ -1937,7 +2028,7 @@ export async function recordSupplierOpeningBalance(formData: FormData) {
   const supplierId = text(formData, "supplier_id");
   const direction = text(formData, "direction");
   const amount = asNumber(formData.get("amount"));
-  const adjustmentDate = text(formData, "adjustment_date") || new Date().toISOString().slice(0, 10);
+  const adjustmentDate = text(formData, "adjustment_date") || todayISO();
   const notes = text(formData, "notes");
   if (!supplierId) pageError("/suppliers", "Select a supplier before recording an opening balance.");
   if (amount <= 0) pageError("/suppliers", "Opening balance amount must be greater than zero.");
@@ -1966,21 +2057,28 @@ export async function recordSupplierAdjustment(formData: FormData) {
   const purchaseOrderId = text(formData, "purchase_order_id") || null;
   const amount = asNumber(formData.get("amount"));
   const quantity = asNumber(formData.get("quantity"));
+  const itemId = text(formData, "item_id") || null;
+  const adjustmentType = text(formData, "adjustment_type") || "return";
+  const adjustmentDate = text(formData, "adjustment_date") || todayISO();
   const redirectPath = purchaseOrderId ? `/suppliers/invoices/${purchaseOrderId}` : "/suppliers";
   if (!supplierId) pageError(redirectPath, "Select a supplier before recording a return or damage.");
   if (amount < 0 || quantity < 0) pageError(redirectPath, "Supplier adjustment quantity and amount cannot be negative.");
+  if (quantity > 0 && !itemId) pageError(redirectPath, "Supplier adjustments with quantity need an item so inventory can be tracked.");
+  if (itemId && quantity > 0) {
+    await ensureAvailableStock(supabase, [{ item_id: itemId, quantity_delta: -quantity }], redirectPath);
+  }
 
   const { data: adjustment, error: adjustmentError } = await supabase
     .from("supplier_adjustments")
     .insert({
       supplier_id: supplierId,
       purchase_order_id: purchaseOrderId,
-      item_id: text(formData, "item_id") || null,
-      adjustment_type: text(formData, "adjustment_type") || "return",
+      item_id: itemId,
+      adjustment_type: adjustmentType,
       quantity,
       amount,
       reason: text(formData, "reason") || null,
-      adjustment_date: text(formData, "adjustment_date") || new Date().toISOString().slice(0, 10)
+      adjustment_date: adjustmentDate
     })
     .select("id")
     .single();
@@ -1995,6 +2093,18 @@ export async function recordSupplierAdjustment(formData: FormData) {
   if (attachmentId && adjustment?.id) {
     const { error: attachmentError } = await supabase.from("supplier_adjustments").update({ attachment_file_id: attachmentId }).eq("id", adjustment.id);
     if (attachmentError) pageError(redirectPath, `Supplier adjustment attachment link could not be saved: ${errorMessage(attachmentError)}`);
+  }
+  if (itemId && quantity > 0 && adjustment?.id) {
+    await insertInventoryMovementsChecked(supabase, [{
+      item_id: itemId,
+      movement_type: adjustmentType === "damage" ? "damage" : "adjustment",
+      quantity_delta: -quantity,
+      unit_cost: amount,
+      reference_type: "supplier_adjustment",
+      reference_id: adjustment.id,
+      notes: text(formData, "reason") || null,
+      movement_date: adjustmentDate
+    }], redirectPath, "Supplier adjustment stock movement could not be saved");
   }
   await writeAudit(supabase, "create", "supplier_adjustment", adjustment?.id ?? null, "Recorded supplier adjustment", { amount });
   revalidatePath("/suppliers");
@@ -2013,7 +2123,7 @@ export async function recordExpense(formData: FormData) {
     description,
     category: text(formData, "category") || "general",
     amount,
-    expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
+    expense_date: text(formData, "expense_date") || todayISO()
   }).select("id").single();
   if (error) pageError("/expenses", `Expense could not be saved: ${errorMessage(error)}`);
   await writeAudit(supabase, "create", "expense", expense?.id ?? null, `Recorded expense ${description}`, { amount });
@@ -2036,7 +2146,7 @@ export async function updateExpense(formData: FormData) {
       description,
       category: text(formData, "category") || "general",
       amount,
-      expense_date: text(formData, "expense_date") || new Date().toISOString().slice(0, 10)
+      expense_date: text(formData, "expense_date") || todayISO()
     })
     .eq("id", expenseId);
   if (error) pageError("/expenses", `Expense could not be updated: ${errorMessage(error)}`);

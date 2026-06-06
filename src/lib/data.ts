@@ -1,5 +1,6 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { hasSupabaseEnv } from "@/lib/config";
+import { todayISO } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 
 export type Row = Record<string, unknown>;
@@ -46,6 +47,42 @@ type SupplierInvoiceSummary = {
   items?: { name?: string | null; sku?: string | null };
   suppliers?: { name?: string | null };
 };
+
+function groupSupplierInvoiceRows(rows: Row[]) {
+  const grouped = new Map<string, SupplierInvoiceSummary>();
+  for (const row of rows) {
+    const invoiceNumber = String(row.supplier_invoice_number ?? "").trim();
+    const key = invoiceNumber ? `${row.supplier_id}:${invoiceNumber}` : String(row.id);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, {
+        ...row,
+        id: String(row.id),
+        supplier_id: String(row.supplier_id),
+        order_date: String(row.order_date ?? ""),
+        total: Number(row.total ?? 0),
+        line_count: 1,
+        item_names: [(row.items as Row | null | undefined)?.name].filter(Boolean)
+      });
+      continue;
+    }
+
+    existing.total = Number(existing.total ?? 0) + Number(row.total ?? 0);
+    existing.line_count = Number(existing.line_count ?? 1) + 1;
+    existing.order_date = String(row.order_date ?? "") > String(existing.order_date ?? "") ? String(row.order_date ?? "") : existing.order_date;
+    const rawItemName = (row.items as Row | null | undefined)?.name;
+    const itemName = rawItemName ? String(rawItemName) : null;
+    if (itemName && Array.isArray(existing.item_names) && !existing.item_names.includes(itemName)) {
+      existing.item_names.push(itemName);
+    }
+    existing.items = {
+      name: Number(existing.line_count ?? 1) > 1 ? `${existing.line_count} items` : itemName ?? String((existing.items as Row | null | undefined)?.name ?? ""),
+      sku: null
+    };
+  }
+
+  return Array.from(grouped.values()).sort((first, second) => String(second.order_date ?? "").localeCompare(String(first.order_date ?? "")));
+}
 
 export async function getProfile() {
   noStore();
@@ -356,44 +393,30 @@ export async function listSupplierInvoices() {
   noStore();
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
+    .from("supplier_invoice_summaries")
+    .select("*")
+    .order("order_date", { ascending: false })
+    .limit(100);
+  if (!error && data) {
+    return data.map((row) => ({
+      ...row,
+      supplier_id: row.supplier_id,
+      supplier_invoice_number: row.supplier_invoice_number,
+      total: Number(row.total ?? 0),
+      line_count: Number(row.line_count ?? 1),
+      suppliers: { name: row.supplier_name },
+      items: { name: Number(row.line_count ?? 1) > 1 ? `${row.line_count} items` : row.item_name, sku: null },
+      item_names: row.item_names ?? []
+    }));
+  }
+
+  const { data: fallbackData } = await supabase
     .from("purchase_orders")
     .select("*, suppliers(name), items(name, sku), app_files(id, file_name)")
     .order("order_date", { ascending: false })
     .limit(100);
-  const grouped = new Map<string, SupplierInvoiceSummary>();
-  for (const row of data ?? []) {
-    const invoiceNumber = String(row.supplier_invoice_number ?? "").trim();
-    const key = invoiceNumber ? `${row.supplier_id}:${invoiceNumber}` : String(row.id);
-    const existing = grouped.get(key);
-    if (!existing) {
-      grouped.set(key, {
-        ...row,
-        id: String(row.id),
-        supplier_id: String(row.supplier_id),
-        order_date: String(row.order_date ?? ""),
-        total: Number(row.total ?? 0),
-        line_count: 1,
-        item_names: [(row.items as Row | null | undefined)?.name].filter(Boolean)
-      });
-      continue;
-    }
-
-    existing.total = Number(existing.total ?? 0) + Number(row.total ?? 0);
-    existing.line_count = Number(existing.line_count ?? 1) + 1;
-    existing.order_date = String(row.order_date ?? "") > String(existing.order_date ?? "") ? String(row.order_date ?? "") : existing.order_date;
-    const rawItemName = (row.items as Row | null | undefined)?.name;
-    const itemName = rawItemName ? String(rawItemName) : null;
-    if (itemName && Array.isArray(existing.item_names) && !existing.item_names.includes(itemName)) {
-      existing.item_names.push(itemName);
-    }
-    existing.items = {
-      name: Number(existing.line_count ?? 1) > 1 ? `${existing.line_count} items` : itemName ?? String((existing.items as Row | null | undefined)?.name ?? ""),
-      sku: null
-    };
-  }
-
-  return Array.from(grouped.values()).sort((first, second) => String(second.order_date ?? "").localeCompare(String(first.order_date ?? "")));
+  return groupSupplierInvoiceRows(fallbackData ?? []);
 }
 
 export async function getInvoice(id: string) {
@@ -489,7 +512,7 @@ export async function dashboardTotals() {
     return { customerBalance: 0, supplierBalance: 0, stockValue: 0, todayCash: 0, todayExpenses: 0 };
   }
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const [customers, suppliers, stock, cash, expenses] = await Promise.all([
     supabase.from("customer_balances").select("balance"),
     supabase.from("supplier_balances").select("balance"),
