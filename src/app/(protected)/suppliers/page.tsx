@@ -3,6 +3,7 @@ import { createSupplier, deleteSupplier, deleteSupplierInvoice, recordSupplierAd
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { SupplierInvoiceDeductions } from "@/components/supplier-invoice-deductions";
 import { SupplierInvoiceLines } from "@/components/supplier-invoice-lines";
@@ -43,7 +44,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
               <h3 className="text-xl font-bold">Post Supplier Invoice</h3>
               <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">Use this for received supplier bills, stock-in items, and same-invoice returns, damage, or credits.</p>
             </div>
-            <p className="rounded-md bg-[color:var(--muted)] px-3 py-2 text-sm font-bold">Recent posted: {money(recentInvoiceTotal)}</p>
+            <StatusBadge tone={recentInvoiceTotal > 0 ? "good" : "neutral"}>Recent posted {money(recentInvoiceTotal)}</StatusBadge>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             <div className="field md:col-span-1">
@@ -61,12 +62,14 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
           </div>
           <SupplierInvoiceLines items={items} />
           <SupplierInvoiceDeductions items={items} />
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <div className="sticky-actions -mx-5 -mb-5 px-5">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <div className="field">
               <label>Invoice Image / Attachment</label>
               <input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" />
             </div>
             <SubmitButton pendingText="Posting supplier invoice...">Post Supplier Invoice</SubmitButton>
+            </div>
           </div>
         </form>
 
@@ -115,15 +118,15 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
                   <td>{invoice.order_date}</td>
                   <td>{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
                   <td>{invoice.suppliers?.name}</td>
-                  <td>{invoice.items?.name}</td>
-                  <td>{money(invoice.total)}</td>
+                    <td><StatusBadge tone={Number(invoice.line_count ?? 1) > 1 ? "neutral" : "good"}>{invoice.items?.name}</StatusBadge></td>
+                    <td>{money(invoice.total)}</td>
                   <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
                   <td>
                     <div className="flex flex-wrap gap-2">
                       <Link className="btn btn-secondary" href={`/suppliers/invoices/${invoice.id}/edit`}>Edit</Link>
                       <form action={deleteSupplierInvoice}>
                         <input type="hidden" name="purchase_order_id" value={invoice.id} />
-                        <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message="This deletes all item lines under this supplier invoice number, reverses related stock movement, removes linked supplier payments/adjustments, and logs the deletion." confirmLabel="Delete Supplier Invoice">Delete</ConfirmSubmitButton>
+                        <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message={`This deletes ${invoice.line_count ?? 1} item line${Number(invoice.line_count ?? 1) === 1 ? "" : "s"} under this supplier invoice/DR number, reverses stock movement, removes linked payments/adjustments, and logs the deletion.`} confirmLabel="Delete Supplier Invoice">Delete</ConfirmSubmitButton>
                       </form>
                     </div>
                   </td>
@@ -141,7 +144,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
           <table>
             <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount</th></tr></thead>
             <tbody>
-              {adjustments.map((row) => <tr key={row.id}><td>{row.adjustment_date}</td><td>{row.suppliers?.name}</td><td>{row.adjustment_type}</td><td>{row.items?.name ?? "-"}</td><td>{money(row.amount)}</td></tr>)}
+              {adjustments.map((row) => <tr key={row.id}><td>{row.adjustment_date}</td><td>{row.suppliers?.name}</td><td><StatusBadge tone={row.adjustment_type === "damage" ? "danger" : row.adjustment_type === "credit" ? "neutral" : "warning"}>{row.adjustment_type}</StatusBadge></td><td>{row.items?.name ?? "-"}</td><td>{money(row.amount)}</td></tr>)}
               {!adjustments.length ? <tr><td colSpan={5}>No supplier deductions yet.</td></tr> : null}
             </tbody>
           </table>

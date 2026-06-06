@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { PrintButton } from "@/components/print-button";
 import { getSupplierCutoffReport, listSupplierRows } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
@@ -35,13 +36,16 @@ export default async function SupplierCutoffPage({
   return (
     <>
       <PageHeader title="Supplier Cutoff Counter" description="15th and month-end supplier invoice counter with cheque payment list." />
-      <form className="no-print mb-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_auto]">
-        <select className="input" name="supplier_id" defaultValue={supplierId}>
-          {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-        </select>
-        <input className="input" name="cutoff" type="date" defaultValue={cutoff} />
-        <button className="btn" type="submit">View Cutoff</button>
-      </form>
+      <div className="no-print mb-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
+        <form className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_auto]">
+          <select className="input" name="supplier_id" defaultValue={supplierId}>
+            {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+          </select>
+          <input className="input" name="cutoff" type="date" defaultValue={cutoff} />
+          <button className="btn" type="submit">View Cutoff</button>
+        </form>
+        <PrintButton label="Print Cutoff" />
+      </div>
 
       {!supplierId ? <p>No suppliers yet.</p> : null}
       {report ? (

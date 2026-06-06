@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
+import { StatusBadge } from "@/components/status-badge";
 
 type ItemOption = {
   id: string;
   name: string;
   sku?: string | null;
   unit_cost?: number | string | null;
+  current_quantity?: number | string | null;
 };
 
 type Line = {
@@ -42,16 +44,28 @@ export function SupplierInvoiceLines({ items }: { items: ItemOption[] }) {
     });
   }
 
+  function removeLine(index: number) {
+    setLines((current) => current.length === 1 ? [emptyLine(0)] : current.filter((_, lineIndex) => lineIndex !== index));
+  }
+
   return (
-    <section>
+    <section className="border-t border-[color:var(--border)] pt-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h4 className="font-bold">Received Items</h4>
+          <p className="text-sm text-[color:var(--muted-foreground)]">Each line adds stock movement under the supplier invoice number.</p>
+        </div>
+        <StatusBadge tone={total > 0 ? "good" : "neutral"}>{money(total)}</StatusBadge>
+      </div>
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Qty</th><th>Item</th><th>Unit Cost</th><th>Total</th></tr>
+            <tr><th>Qty</th><th>Item</th><th>Current Stock</th><th>Unit Cost</th><th>Total</th><th>Action</th></tr>
           </thead>
           <tbody>
             {lines.map((line, index) => {
               const lineTotal = Number(line.quantity || 0) * Number(line.unitCost || 0);
+              const selectedItem = items.find((item) => item.id === line.itemId);
               return (
                 <tr key={index}>
                   <td>
@@ -63,16 +77,19 @@ export function SupplierInvoiceLines({ items }: { items: ItemOption[] }) {
                       {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
                     </select>
                   </td>
+                  <td>{selectedItem ? <StatusBadge tone="neutral">{selectedItem.current_quantity ?? 0}</StatusBadge> : "-"}</td>
                   <td>
                     <input className="input" name="unit_cost" type="number" step="0.01" value={line.unitCost} onChange={(event) => updateLine(index, { unitCost: event.target.value })} />
                   </td>
                   <td className="font-bold">{money(lineTotal)}</td>
+                  <td><button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>Remove</button></td>
                 </tr>
               );
             })}
             <tr>
-              <td colSpan={3} className="text-right font-bold">Supplier Invoice Total</td>
+              <td colSpan={4} className="text-right font-bold">Supplier Invoice Total</td>
               <td className="font-bold">{money(total)}</td>
+              <td />
             </tr>
           </tbody>
         </table>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
+import { StatusBadge } from "@/components/status-badge";
 
 type ItemOption = {
   id: string;
@@ -63,7 +64,13 @@ export function SupplierInvoiceDeductions({ items, initialLines }: { items: Item
   return (
     <section className="border-t border-[color:var(--border)] pt-4">
       <div className="mb-3">
-        <h4 className="font-bold">Supplier Returns / Damage / Credits</h4>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h4 className="font-bold">Supplier Returns / Damage / Credits</h4>
+            <p className="text-sm text-[color:var(--muted-foreground)]">Returns and damage with quantity reduce stock; credit-only lines only reduce payable.</p>
+          </div>
+          <StatusBadge tone={total > 0 ? "warning" : "neutral"}>{money(total)}</StatusBadge>
+        </div>
       </div>
       <div className="table-wrap">
         <table>
@@ -80,6 +87,9 @@ export function SupplierInvoiceDeductions({ items, initialLines }: { items: Item
                     <option value="damage">Damage</option>
                     <option value="credit">Credit</option>
                   </select>
+                  <p className="mt-2">
+                    <StatusBadge tone={line.type === "damage" ? "danger" : line.type === "credit" ? "neutral" : "warning"}>{line.type}</StatusBadge>
+                  </p>
                 </td>
                 <td>
                   <select className="input" name="supplier_deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>

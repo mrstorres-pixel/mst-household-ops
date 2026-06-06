@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
+import { StatusBadge } from "@/components/status-badge";
 
 type ItemOption = {
   id: string;
@@ -58,7 +59,13 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
   return (
     <section className="card">
       <div className="border-b border-[color:var(--border)] p-4">
-        <h3 className="text-xl font-bold">Returns</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-bold">Returns</h3>
+            <p className="text-sm text-[color:var(--muted-foreground)]">Good stock returns go back to sellable inventory. Bad stock is tracked as damage/supplier issue.</p>
+          </div>
+          <StatusBadge tone={total > 0 ? "warning" : "neutral"}>{money(total)}</StatusBadge>
+        </div>
       </div>
       <div className="table-wrap">
         <table>
@@ -78,9 +85,13 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
                       checked={line.stockCondition === "good"}
                       onChange={(event) => updateLine(index, { stockCondition: event.target.checked ? "good" : "bad" })}
                     />
-                    Good stock
+                    {line.stockCondition === "good" ? "Good stock" : "Bad stock"}
                   </label>
-                  <p className="mt-1 text-xs text-[color:var(--muted-foreground)]">{line.stockCondition === "good" ? "Adds back to inventory" : "Bad / supplier issue"}</p>
+                  <p className="mt-1">
+                    <StatusBadge tone={line.stockCondition === "good" ? "good" : "danger"}>
+                      {line.stockCondition === "good" ? "Adds to stock" : "No stock add"}
+                    </StatusBadge>
+                  </p>
                 </td>
                 <td>
                   <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>

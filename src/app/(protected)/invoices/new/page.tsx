@@ -1,3 +1,4 @@
+import { Camera, ReceiptText } from "lucide-react";
 import { createInvoice } from "@/app/actions";
 import { InvoiceDeductions } from "@/components/invoice-deductions";
 import { InvoiceLines } from "@/components/invoice-lines";
@@ -24,6 +25,13 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
       <PageNotice error={params.error} success={params.success} />
       <form action={createInvoice} className="grid gap-5">
         <section className="card grid gap-4 p-5 md:grid-cols-3">
+          <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border)] pb-4">
+            <div>
+              <h3 className="text-xl font-bold">Customer and Receipt</h3>
+              <p className="text-sm text-[color:var(--muted-foreground)]">Choose the account first, then encode items in the same order as the manual receipt.</p>
+            </div>
+            <ReceiptText className="h-5 w-5 text-[color:var(--primary)]" />
+          </div>
           <div className="field">
             <label>Customer</label>
             <select className="input" name="customer_id" defaultValue={params.customer_id ?? ""} required>
@@ -53,13 +61,21 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
           </div>
           <div className="field md:col-span-3">
             <label>Invoice Image / Attachment</label>
-            <input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" />
+            <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
+              <input className="input" name="attachment" type="file" accept="image/*,.pdf" capture="environment" />
+              <span className="inline-flex items-center gap-2 text-sm font-bold text-[color:var(--muted-foreground)]"><Camera className="h-4 w-4" /> Optional</span>
+            </div>
           </div>
         </section>
 
         <InvoiceLines items={items} />
         <InvoiceDeductions items={items} />
-        <div><SubmitButton pendingText="Posting invoice...">Post and Print Invoice</SubmitButton></div>
+        <div className="sticky-actions no-print">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Posting checks stock, records customer balance, and opens the print view.</p>
+            <SubmitButton pendingText="Posting invoice...">Post and Print Invoice</SubmitButton>
+          </div>
+        </div>
       </form>
     </>
   );

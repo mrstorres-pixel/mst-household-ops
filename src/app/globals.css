@@ -110,6 +110,54 @@ textarea {
   opacity: 0.72;
 }
 
+.badge {
+  display: inline-flex;
+  min-height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-neutral {
+  border-color: var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.badge-good {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.badge-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.badge-danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 92%, white);
+  padding: 0.75rem 0;
+}
+
 .card {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -137,4 +185,16 @@ th {
   color: var(--muted-foreground);
   font-size: 0.78rem;
   text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  th,
+  td {
+    padding: 0.65rem;
+  }
+
+  .btn,
+  .input {
+    min-height: 2.75rem;
+  }
 }

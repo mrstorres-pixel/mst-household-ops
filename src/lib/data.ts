@@ -532,6 +532,67 @@ export async function dashboardTotals() {
   };
 }
 
+export async function dashboardOperations() {
+  noStore();
+  if (!hasSupabaseEnv()) {
+    return {
+      lowStock: [],
+      openInvoices: [],
+      activeCheques: [],
+      bouncedCheques: [],
+      recentSupplierInvoices: [],
+      recentAudit: []
+    };
+  }
+  const supabase = await createClient();
+  const [lowStock, openInvoices, activeCheques, bouncedCheques, recentSupplierInvoices, recentAudit] = await Promise.all([
+    supabase
+      .from("items")
+      .select("id, name, sku, current_quantity, reorder_level")
+      .eq("is_active", true)
+      .gt("reorder_level", 0)
+      .order("current_quantity")
+      .limit(12),
+    supabase
+      .from("invoice_payment_status")
+      .select("invoice_id, invoice_number, invoice_date, total, remaining_balance, customers(name)")
+      .gt("remaining_balance", 0)
+      .order("invoice_date", { ascending: false })
+      .limit(8),
+    supabase
+      .from("cheques")
+      .select("id, cheque_number, amount, received_date, redeemed_date, status, customers(name)")
+      .in("status", ["received", "redeemed"])
+      .order("received_date", { ascending: false })
+      .limit(8),
+    supabase
+      .from("cheques")
+      .select("id, cheque_number, amount, received_date, status, customers(name)")
+      .in("status", ["bounced", "cancelled"])
+      .order("received_date", { ascending: false })
+      .limit(8),
+    supabase
+      .from("supplier_invoice_summaries")
+      .select("*")
+      .order("order_date", { ascending: false })
+      .limit(8),
+    supabase
+      .from("audit_logs")
+      .select("id, action, entity_type, summary, actor_email, created_at")
+      .order("created_at", { ascending: false })
+      .limit(8)
+  ]);
+
+  return {
+    lowStock: (lowStock.data ?? []).filter((item) => Number(item.current_quantity ?? 0) <= Number(item.reorder_level ?? 0)),
+    openInvoices: openInvoices.data ?? [],
+    activeCheques: activeCheques.data ?? [],
+    bouncedCheques: bouncedCheques.data ?? [],
+    recentSupplierInvoices: recentSupplierInvoices.error ? [] : recentSupplierInvoices.data ?? [],
+    recentAudit: recentAudit.data ?? []
+  };
+}
+
 export async function listCheques() {
   noStore();
   if (!hasSupabaseEnv()) return [];
@@ -819,15 +880,16 @@ export async function getSettings() {
 export async function globalSearch(queryText: string) {
   noStore();
   if (!hasSupabaseEnv() || !queryText.trim()) {
-    return { customers: [], suppliers: [], items: [], invoices: [], cheques: [], payments: [] };
+    return { customers: [], suppliers: [], items: [], invoices: [], supplierInvoices: [], cheques: [], payments: [] };
   }
   const supabase = await createClient();
   const q = `%${queryText.trim()}%`;
-  const [customers, suppliers, items, invoices, cheques, payments] = await Promise.all([
+  const [customers, suppliers, items, invoices, supplierInvoices, cheques, payments] = await Promise.all([
     supabase.from("customers").select("id, name, account_code, phone").or(`name.ilike.${q},account_code.ilike.${q},phone.ilike.${q}`).limit(20),
     supabase.from("suppliers").select("id, name, phone, contact_name").or(`name.ilike.${q},phone.ilike.${q},contact_name.ilike.${q}`).limit(20),
-    supabase.from("items").select("id, name, sku").or(`name.ilike.${q},sku.ilike.${q}`).limit(20),
+    supabase.from("items").select("id, name, sku, current_quantity, reorder_level").or(`name.ilike.${q},sku.ilike.${q}`).limit(20),
     supabase.from("invoices").select("id, invoice_number, total, customers(name)").ilike("invoice_number", q).limit(20),
+    supabase.from("supplier_invoice_summaries").select("*").ilike("supplier_invoice_number", q).limit(20),
     supabase.from("cheques").select("id, cheque_number, amount, status, customers(name)").ilike("cheque_number", q).limit(20),
     supabase.from("payments").select("id, reference, amount, method, customers(name)").ilike("reference", q).limit(20)
   ]);
@@ -836,6 +898,7 @@ export async function globalSearch(queryText: string) {
     suppliers: suppliers.data ?? [],
     items: items.data ?? [],
     invoices: invoices.data ?? [],
+    supplierInvoices: supplierInvoices.error ? [] : supplierInvoices.data ?? [],
     cheques: cheques.data ?? [],
     payments: payments.data ?? []
   };
