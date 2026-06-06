@@ -28,6 +28,7 @@ const nav = [
   { href: "/expenses", label: "Expenses", icon: Banknote },
   { href: "/reports/daily", label: "Daily Report", icon: ClipboardList },
   { href: "/reports/cutoff", label: "Cutoff Report", icon: ClipboardList },
+  { href: "/reports/suppliers/cutoff", label: "Supplier Cutoff", icon: ClipboardList },
   { href: "/audit", label: "Audit Log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings }
 ];

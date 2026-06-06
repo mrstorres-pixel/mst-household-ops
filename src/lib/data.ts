@@ -615,6 +615,104 @@ export async function getCutoffReport(date: string) {
   };
 }
 
+export async function getSupplierCutoffReport(supplierId: string, startDate: string, endDate: string) {
+  noStore();
+  if (!hasSupabaseEnv()) return null;
+  const supabase = await createClient();
+
+  const supplierPromise = supplierId
+    ? supabase.from("suppliers").select("*").eq("id", supplierId).maybeSingle()
+    : Promise.resolve({ data: null });
+
+  const [supplier, invoices, adjustments, payments] = await Promise.all([
+    supplierPromise,
+    supplierId
+      ? supabase
+          .from("purchase_orders")
+          .select("id, supplier_invoice_number, order_date, total")
+          .eq("supplier_id", supplierId)
+          .gte("order_date", startDate)
+          .lte("order_date", endDate)
+          .order("order_date")
+          .order("created_at")
+      : Promise.resolve({ data: [] }),
+    supplierId
+      ? supabase
+          .from("supplier_adjustments")
+          .select("id, purchase_order_id, adjustment_type, amount, adjustment_date, reason")
+          .eq("supplier_id", supplierId)
+          .gte("adjustment_date", startDate)
+          .lte("adjustment_date", endDate)
+          .order("adjustment_date")
+          .order("created_at")
+      : Promise.resolve({ data: [] }),
+    supplierId
+      ? supabase
+          .from("supplier_payments")
+          .select("id, amount, payment_date, reference, notes")
+          .eq("supplier_id", supplierId)
+          .gte("payment_date", startDate)
+          .lte("payment_date", endDate)
+          .order("payment_date")
+          .order("created_at")
+      : Promise.resolve({ data: [] })
+  ]);
+
+  const invoiceRows = invoices.data ?? [];
+  const adjustmentRows = adjustments.data ?? [];
+  const paymentRows = payments.data ?? [];
+  const adjustmentsByPurchaseId = new Map<string, number>();
+  for (const adjustment of adjustmentRows) {
+    if (!adjustment.purchase_order_id) continue;
+    const key = String(adjustment.purchase_order_id);
+    adjustmentsByPurchaseId.set(key, (adjustmentsByPurchaseId.get(key) ?? 0) + Number(adjustment.amount ?? 0));
+  }
+
+  const counterRows = invoiceRows.map((invoice) => {
+    const delivered = Number(invoice.total ?? 0);
+    const returned = adjustmentsByPurchaseId.get(String(invoice.id)) ?? 0;
+    return {
+      id: String(invoice.id),
+      date: invoice.order_date,
+      reference: invoice.supplier_invoice_number || String(invoice.id).slice(0, 8),
+      delivered,
+      returned,
+      amount: delivered - returned
+    };
+  });
+
+  const linkedAdjustmentIds = new Set(invoiceRows.map((invoice) => String(invoice.id)));
+  const unlinkedAdjustments = adjustmentRows.filter((adjustment) => !adjustment.purchase_order_id || !linkedAdjustmentIds.has(String(adjustment.purchase_order_id)));
+  for (const adjustment of unlinkedAdjustments) {
+    const amount = Number(adjustment.amount ?? 0);
+    counterRows.push({
+      id: String(adjustment.id),
+      date: adjustment.adjustment_date,
+      reference: adjustment.reason || adjustment.adjustment_type,
+      delivered: 0,
+      returned: amount,
+      amount: -amount
+    });
+  }
+
+  counterRows.sort((first, second) => String(first.date).localeCompare(String(second.date)));
+  const deliveredTotal = counterRows.reduce((sum, row) => sum + row.delivered, 0);
+  const returnTotal = counterRows.reduce((sum, row) => sum + row.returned, 0);
+  const invoiceTotal = counterRows.reduce((sum, row) => sum + row.amount, 0);
+  const paymentTotal = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+
+  return {
+    supplier: supplier.data,
+    counterRows,
+    paymentRows,
+    deliveredTotal,
+    returnTotal,
+    invoiceTotal,
+    paymentTotal,
+    remaining: invoiceTotal - paymentTotal
+  };
+}
+
 export async function getSettings() {
   noStore();
   if (!hasSupabaseEnv()) return { business_name: "MST Household", currency: "PHP", timezone: "Asia/Singapore" };
