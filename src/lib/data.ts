@@ -34,6 +34,19 @@ export type CustomerDirectoryOptions = {
   pageSize?: number;
 };
 
+type SupplierInvoiceSummary = {
+  [key: string]: unknown;
+  id: string;
+  supplier_id: string;
+  supplier_invoice_number?: string | null;
+  order_date: string;
+  total: number;
+  line_count: number;
+  item_names: unknown[];
+  items?: { name?: string | null; sku?: string | null };
+  suppliers?: { name?: string | null };
+};
+
 export async function getProfile() {
   noStore();
   if (!hasSupabaseEnv()) return null;
@@ -348,7 +361,39 @@ export async function listSupplierInvoices() {
     .select("*, suppliers(name), items(name, sku), app_files(id, file_name)")
     .order("order_date", { ascending: false })
     .limit(100);
-  return data ?? [];
+  const grouped = new Map<string, SupplierInvoiceSummary>();
+  for (const row of data ?? []) {
+    const invoiceNumber = String(row.supplier_invoice_number ?? "").trim();
+    const key = invoiceNumber ? `${row.supplier_id}:${invoiceNumber}` : String(row.id);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, {
+        ...row,
+        id: String(row.id),
+        supplier_id: String(row.supplier_id),
+        order_date: String(row.order_date ?? ""),
+        total: Number(row.total ?? 0),
+        line_count: 1,
+        item_names: [(row.items as Row | null | undefined)?.name].filter(Boolean)
+      });
+      continue;
+    }
+
+    existing.total = Number(existing.total ?? 0) + Number(row.total ?? 0);
+    existing.line_count = Number(existing.line_count ?? 1) + 1;
+    existing.order_date = String(row.order_date ?? "") > String(existing.order_date ?? "") ? String(row.order_date ?? "") : existing.order_date;
+    const rawItemName = (row.items as Row | null | undefined)?.name;
+    const itemName = rawItemName ? String(rawItemName) : null;
+    if (itemName && Array.isArray(existing.item_names) && !existing.item_names.includes(itemName)) {
+      existing.item_names.push(itemName);
+    }
+    existing.items = {
+      name: Number(existing.line_count ?? 1) > 1 ? `${existing.line_count} items` : itemName ?? String((existing.items as Row | null | undefined)?.name ?? ""),
+      sku: null
+    };
+  }
+
+  return Array.from(grouped.values()).sort((first, second) => String(second.order_date ?? "").localeCompare(String(first.order_date ?? "")));
 }
 
 export async function getInvoice(id: string) {
@@ -661,20 +706,47 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
   const invoiceRows = invoices.data ?? [];
   const adjustmentRows = adjustments.data ?? [];
   const paymentRows = payments.data ?? [];
-  const adjustmentsByPurchaseId = new Map<string, number>();
-  for (const adjustment of adjustmentRows) {
-    if (!adjustment.purchase_order_id) continue;
-    const key = String(adjustment.purchase_order_id);
-    adjustmentsByPurchaseId.set(key, (adjustmentsByPurchaseId.get(key) ?? 0) + Number(adjustment.amount ?? 0));
+  const invoiceGroupByPurchaseId = new Map<string, string>();
+  for (const invoice of invoiceRows) {
+    const invoiceNumber = String(invoice.supplier_invoice_number ?? "").trim();
+    const groupKey = invoiceNumber ? `${supplierId}:${invoiceNumber}` : String(invoice.id);
+    invoiceGroupByPurchaseId.set(String(invoice.id), groupKey);
   }
 
-  const counterRows = invoiceRows.map((invoice) => {
+  const adjustmentsByGroupId = new Map<string, number>();
+  for (const adjustment of adjustmentRows) {
+    if (!adjustment.purchase_order_id) continue;
+    const groupKey = invoiceGroupByPurchaseId.get(String(adjustment.purchase_order_id));
+    if (!groupKey) continue;
+    adjustmentsByGroupId.set(groupKey, (adjustmentsByGroupId.get(groupKey) ?? 0) + Number(adjustment.amount ?? 0));
+  }
+
+  const invoiceGroups = new Map<string, { id: string; date: string; reference: string; delivered: number }>();
+  for (const invoice of invoiceRows) {
+    const invoiceNumber = String(invoice.supplier_invoice_number ?? "").trim();
+    const groupKey = invoiceNumber ? `${supplierId}:${invoiceNumber}` : String(invoice.id);
     const delivered = Number(invoice.total ?? 0);
-    const returned = adjustmentsByPurchaseId.get(String(invoice.id)) ?? 0;
+    const existing = invoiceGroups.get(groupKey);
+    if (!existing) {
+      invoiceGroups.set(groupKey, {
+        id: groupKey,
+        date: invoice.order_date,
+        reference: invoiceNumber || String(invoice.id).slice(0, 8),
+        delivered
+      });
+      continue;
+    }
+    existing.delivered += delivered;
+    existing.date = String(invoice.order_date ?? "") < String(existing.date ?? "") ? invoice.order_date : existing.date;
+  }
+
+  const counterRows = Array.from(invoiceGroups.values()).map((invoice) => {
+    const delivered = Number(invoice.delivered ?? 0);
+    const returned = adjustmentsByGroupId.get(String(invoice.id)) ?? 0;
     return {
-      id: String(invoice.id),
-      date: invoice.order_date,
-      reference: invoice.supplier_invoice_number || String(invoice.id).slice(0, 8),
+      id: invoice.id,
+      date: invoice.date,
+      reference: invoice.reference,
       delivered,
       returned,
       amount: delivered - returned
