@@ -5,7 +5,8 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
-import { getSupplierInvoice } from "@/lib/data";
+import { SupplierInvoiceDeductions } from "@/components/supplier-invoice-deductions";
+import { getSupplierInvoice, listItems } from "@/lib/data";
 import { money } from "@/lib/format";
 
 export default async function EditSupplierInvoicePage({
@@ -15,7 +16,7 @@ export default async function EditSupplierInvoicePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const [{ id }, notices] = await Promise.all([params, searchParams]);
+  const [{ id }, notices, items] = await Promise.all([params, searchParams, listItems()]);
   const data = await getSupplierInvoice(id);
   if (!data) notFound();
   const invoice = data.invoice;
@@ -74,6 +75,10 @@ export default async function EditSupplierInvoicePage({
               ))}
             </tbody>
           </table>
+        </section>
+
+        <section className="card p-5">
+          <SupplierInvoiceDeductions items={items} initialLines={data.adjustments} />
         </section>
 
         <div>

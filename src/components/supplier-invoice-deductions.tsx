@@ -10,6 +10,7 @@ type ItemOption = {
 };
 
 type DeductionLine = {
+  id: string;
   type: "return" | "damage" | "credit";
   itemId: string;
   quantity: string;
@@ -17,7 +18,17 @@ type DeductionLine = {
   reason: string;
 };
 
+type InitialDeductionLine = {
+  id?: string | null;
+  adjustment_type?: "return" | "damage" | "credit" | string | null;
+  item_id?: string | null;
+  quantity?: number | string | null;
+  amount?: number | string | null;
+  reason?: string | null;
+};
+
 const emptyLine = (): DeductionLine => ({
+  id: "",
   type: "return",
   itemId: "",
   quantity: "",
@@ -25,8 +36,20 @@ const emptyLine = (): DeductionLine => ({
   reason: ""
 });
 
-export function SupplierInvoiceDeductions({ items }: { items: ItemOption[] }) {
-  const [lines, setLines] = useState<DeductionLine[]>([emptyLine()]);
+function hydrateLine(line: InitialDeductionLine): DeductionLine {
+  const type = line.adjustment_type === "damage" || line.adjustment_type === "credit" ? line.adjustment_type : "return";
+  return {
+    id: line.id ?? "",
+    type,
+    itemId: line.item_id ?? "",
+    quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
+    amount: line.amount === null || line.amount === undefined ? "" : String(line.amount),
+    reason: line.reason ?? ""
+  };
+}
+
+export function SupplierInvoiceDeductions({ items, initialLines }: { items: ItemOption[]; initialLines?: InitialDeductionLine[] }) {
+  const [lines, setLines] = useState<DeductionLine[]>(() => initialLines?.length ? initialLines.map(hydrateLine) : [emptyLine()]);
   const total = useMemo(() => lines.reduce((sum, line) => sum + Number(line.amount || 0), 0), [lines]);
 
   function updateLine(index: number, patch: Partial<DeductionLine>) {
@@ -51,6 +74,7 @@ export function SupplierInvoiceDeductions({ items }: { items: ItemOption[] }) {
             {lines.map((line, index) => (
               <tr key={index}>
                 <td>
+                  <input type="hidden" name="supplier_deduction_id" value={line.id} />
                   <select className="input" name="supplier_deduction_type" value={line.type} onChange={(event) => updateLine(index, { type: event.target.value as DeductionLine["type"] })}>
                     <option value="return">Return</option>
                     <option value="damage">Damage</option>

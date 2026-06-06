@@ -1197,6 +1197,7 @@ export async function updateSupplierInvoice(formData: FormData) {
   if (relatedError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice lines could not be loaded: ${errorMessage(relatedError)}`);
 
   const existingLines = relatedLines?.length ? relatedLines : [existing];
+  const purchaseIds = existingLines.map((line) => String(line.id));
   const lineIds = formData.getAll("purchase_line_id").map(String);
   const quantities = formData.getAll("quantity").map(asNumber);
   const unitCosts = formData.getAll("unit_cost").map(asNumber);
@@ -1214,6 +1215,7 @@ export async function updateSupplierInvoice(formData: FormData) {
   if (lineUpdates.some((update) => !update.line)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "One supplier invoice line could not be matched.");
   if (lineUpdates.some((update) => update.quantity <= 0)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice quantities must be greater than zero.");
   if (lineUpdates.some((update) => update.unitCost < 0)) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice unit cost cannot be negative.");
+  const updatedInvoiceTotal = lineUpdates.reduce((sum, update) => sum + update.quantity * update.unitCost, 0);
 
   for (const update of lineUpdates) {
     const line = update.line!;
@@ -1262,14 +1264,172 @@ export async function updateSupplierInvoice(formData: FormData) {
     if (movementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice stock correction could not be saved: ${errorMessage(movementError)}`);
   }
 
+  const deductionIds = formData.getAll("supplier_deduction_id").map(String);
+  const deductionTypes = formData.getAll("supplier_deduction_type").map(String);
+  const deductionItemIds = formData.getAll("supplier_deduction_item_id").map(String);
+  const deductionQuantities = formData.getAll("supplier_deduction_quantity").map(asNumber);
+  const deductionAmounts = formData.getAll("supplier_deduction_amount").map(asNumber);
+  const deductionReasons = formData.getAll("supplier_deduction_reason").map(String);
+  const deductionDrafts = deductionTypes.map((deductionType, index) => {
+    const type = deductionType === "damage" || deductionType === "credit" ? deductionType : "return";
+    return {
+      id: deductionIds[index] || null,
+      type,
+      item_id: deductionItemIds[index] || null,
+      quantity: deductionQuantities[index] || 0,
+      amount: deductionAmounts[index] || 0,
+      reason: deductionReasons[index]?.trim() || `Supplier invoice ${type}`
+    };
+  });
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
+    pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier return, damage, and credit values cannot be negative.");
+  }
+  const deductions = deductionDrafts.filter((deduction) => deduction.amount > 0);
+  if (deductions.some((deduction) => deduction.quantity > 0 && !deduction.item_id)) {
+    pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier deductions with quantity need an item so inventory can be tracked.");
+  }
+  const deductionsTotal = deductions.reduce((sum, deduction) => sum + deduction.amount, 0);
+  if (deductionsTotal > updatedInvoiceTotal) {
+    pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice deductions cannot be higher than the supplier invoice total.");
+  }
+
+  const { data: existingAdjustments, error: adjustmentLoadError } = purchaseIds.length
+    ? await supabase
+        .from("supplier_adjustments")
+        .select("id, item_id, quantity, amount, adjustment_type")
+        .in("purchase_order_id", purchaseIds)
+    : { data: [], error: null };
+  if (adjustmentLoadError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier invoice deductions could not be loaded: ${errorMessage(adjustmentLoadError)}`);
+
+  const existingAdjustmentsById = new Map((existingAdjustments ?? []).map((adjustment) => [String(adjustment.id), adjustment]));
+  const submittedAdjustmentIds = new Set(deductions.map((deduction) => deduction.id).filter(Boolean) as string[]);
+  const removedAdjustments = (existingAdjustments ?? []).filter((adjustment) => !submittedAdjustmentIds.has(String(adjustment.id)));
+  const adjustmentMovementRows: Array<{
+    item_id: string;
+    movement_type: "adjustment" | "damage";
+    quantity_delta: number;
+    unit_cost: number;
+    reference_type: string;
+    reference_id: string;
+    notes: string;
+    movement_date: string;
+  }> = [];
+
+  for (const adjustment of removedAdjustments) {
+    if (adjustment.item_id && Number(adjustment.quantity ?? 0) > 0) {
+      adjustmentMovementRows.push({
+        item_id: String(adjustment.item_id),
+        movement_type: "adjustment",
+        quantity_delta: Number(adjustment.quantity ?? 0),
+        unit_cost: Number(adjustment.amount ?? 0),
+        reference_type: "supplier_adjustment_correction",
+        reference_id: String(adjustment.id),
+        notes: `Removed supplier deduction ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
+        movement_date: orderDate
+      });
+    }
+  }
+
+  if (removedAdjustments.length) {
+    const { error: deleteAdjustmentError } = await supabase
+      .from("supplier_adjustments")
+      .delete()
+      .in("id", removedAdjustments.map((adjustment) => adjustment.id));
+    if (deleteAdjustmentError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Removed supplier deductions could not be saved: ${errorMessage(deleteAdjustmentError)}`);
+  }
+
+  for (const deduction of deductions) {
+    const existingAdjustment = deduction.id ? existingAdjustmentsById.get(deduction.id) : null;
+    if (existingAdjustment) {
+      const oldItemId = existingAdjustment.item_id ? String(existingAdjustment.item_id) : null;
+      const oldQuantity = Number(existingAdjustment.quantity ?? 0);
+      const oldAmount = Number(existingAdjustment.amount ?? 0);
+      const stockChanged = oldItemId !== deduction.item_id || oldQuantity !== deduction.quantity;
+
+      if (stockChanged && oldItemId && oldQuantity > 0) {
+        adjustmentMovementRows.push({
+          item_id: oldItemId,
+          movement_type: "adjustment",
+          quantity_delta: oldQuantity,
+          unit_cost: oldAmount,
+          reference_type: "supplier_adjustment_correction",
+          reference_id: String(existingAdjustment.id),
+          notes: `Reversed supplier deduction ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
+          movement_date: orderDate
+        });
+      }
+
+      const { error: updateAdjustmentError } = await supabase
+        .from("supplier_adjustments")
+        .update({
+          item_id: deduction.item_id,
+          adjustment_type: deduction.type,
+          quantity: deduction.quantity,
+          amount: deduction.amount,
+          reason: deduction.reason,
+          adjustment_date: orderDate
+        })
+        .eq("id", existingAdjustment.id);
+      if (updateAdjustmentError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier deduction could not be updated: ${errorMessage(updateAdjustmentError)}`);
+
+      if (stockChanged && deduction.item_id && deduction.quantity > 0) {
+        adjustmentMovementRows.push({
+          item_id: deduction.item_id,
+          movement_type: deduction.type === "damage" ? "damage" : "adjustment",
+          quantity_delta: -deduction.quantity,
+          unit_cost: deduction.amount,
+          reference_type: "supplier_adjustment",
+          reference_id: String(existingAdjustment.id),
+          notes: `Corrected supplier deduction ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
+          movement_date: orderDate
+        });
+      }
+    } else {
+      const { data: adjustment, error: insertAdjustmentError } = await supabase
+        .from("supplier_adjustments")
+        .insert({
+          supplier_id: existing.supplier_id,
+          purchase_order_id: purchaseOrderId,
+          item_id: deduction.item_id,
+          adjustment_type: deduction.type,
+          quantity: deduction.quantity,
+          amount: deduction.amount,
+          reason: deduction.reason,
+          adjustment_date: orderDate
+        })
+        .select("id")
+        .single();
+      if (insertAdjustmentError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier deduction could not be added: ${errorMessage(insertAdjustmentError)}`);
+      if (adjustment?.id && deduction.item_id && deduction.quantity > 0) {
+        adjustmentMovementRows.push({
+          item_id: deduction.item_id,
+          movement_type: deduction.type === "damage" ? "damage" : "adjustment",
+          quantity_delta: -deduction.quantity,
+          unit_cost: deduction.amount,
+          reference_type: "supplier_adjustment",
+          reference_id: adjustment.id,
+          notes: `Added supplier deduction ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`,
+          movement_date: orderDate
+        });
+      }
+    }
+  }
+
+  if (adjustmentMovementRows.length) {
+    const { error: adjustmentMovementError } = await supabase.from("inventory_movements").insert(adjustmentMovementRows);
+    if (adjustmentMovementError) pageError(`/suppliers/invoices/${purchaseOrderId}/edit`, `Supplier deduction stock corrections could not be saved: ${errorMessage(adjustmentMovementError)}`);
+  }
+
   await writeAudit(supabase, "update", "supplier_invoice", purchaseOrderId, `Edited supplier invoice ${supplierInvoiceNumber || existing.supplier_invoice_number || purchaseOrderId.slice(0, 8)}`, {
     line_count: lineUpdates.length,
+    deduction_count: deductions.length,
     supplier_invoice_number: supplierInvoiceNumber
   });
   revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
   revalidatePath(`/suppliers/invoices/${purchaseOrderId}/edit`);
   revalidatePath("/suppliers");
   revalidatePath("/inventory");
+  revalidatePath("/reports/daily");
   pageSuccess(`/suppliers/invoices/${purchaseOrderId}/edit`, "Supplier invoice updated.");
 }
 
