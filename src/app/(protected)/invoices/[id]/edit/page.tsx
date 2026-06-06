@@ -7,8 +7,14 @@ import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { SubmitButton } from "@/components/submit-button";
-import { getInvoice, listItems } from "@/lib/data";
+import { getInvoice, listCustomerRows, listItems } from "@/lib/data";
 import { money } from "@/lib/format";
+
+type CustomerOption = {
+  id: string;
+  name: string;
+  customer_subaccounts?: Array<{ id: string; name: string }>;
+};
 
 export default async function EditInvoicePage({
   params,
@@ -17,9 +23,10 @@ export default async function EditInvoicePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const [{ id }, notices, items] = await Promise.all([params, searchParams, listItems()]);
+  const [{ id }, notices, items, customerRows] = await Promise.all([params, searchParams, listItems(), listCustomerRows()]);
   const data = await getInvoice(id);
   if (!data) notFound();
+  const customers = customerRows as CustomerOption[];
 
   return (
     <>
@@ -36,7 +43,21 @@ export default async function EditInvoicePage({
       <form action={updatePostedInvoice} className="grid gap-5">
         <input type="hidden" name="invoice_id" value={id} />
         <section className="card grid gap-4 p-5 md:grid-cols-3">
-          <p><strong>Customer</strong><br />{data.invoice.customers?.name}</p>
+          <div className="field">
+            <label>Customer</label>
+            <select className="input" name="customer_id" defaultValue={data.invoice.customer_id} required>
+              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Sub-balance</label>
+            <select className="input" name="subaccount_id" defaultValue={data.invoice.subaccount_id ?? ""}>
+              <option value="">None</option>
+              {customers.flatMap((customer) => (customer.customer_subaccounts ?? []).map((sub) => (
+                <option key={sub.id} value={sub.id}>{customer.name}: {sub.name}</option>
+              )))}
+            </select>
+          </div>
           <p><strong>Current Total</strong><br />{money(data.invoice.total)}</p>
           <p><strong>Current Deductions</strong><br />{money(data.invoice.returns_total)}</p>
           <div className="field">

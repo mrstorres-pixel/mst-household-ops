@@ -972,6 +972,39 @@ export async function updatePostedInvoice(formData: FormData) {
     .eq("id", invoiceId)
     .single();
   if (invoiceError || !invoice) pageError(`/invoices/${invoiceId}/edit`, `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
+  const customerId = text(formData, "customer_id") || invoice.customer_id;
+  const subaccountId = text(formData, "subaccount_id") || null;
+  const customerChanged = customerId !== invoice.customer_id;
+  const subaccountChanged = subaccountId !== (invoice.subaccount_id ?? null);
+  if (!customerId) pageError(`/invoices/${invoiceId}/edit`, "Select a customer before saving changes.");
+  if (subaccountId) {
+    const { data: subaccount, error: subaccountError } = await supabase
+      .from("customer_subaccounts")
+      .select("id")
+      .eq("id", subaccountId)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (subaccountError || !subaccount) {
+      pageError(`/invoices/${invoiceId}/edit`, "Selected sub-balance does not belong to the selected customer.");
+    }
+  }
+  if (customerChanged) {
+    const { data: allocations, error: allocationError } = await supabase
+      .from("payment_allocations")
+      .select("id, payments(method, reference)")
+      .eq("invoice_id", invoiceId);
+    if (allocationError) pageError(`/invoices/${invoiceId}/edit`, `Invoice payments could not be checked before transfer: ${errorMessage(allocationError)}`);
+    const hasExternalPayment = (allocations ?? []).some((allocation) => {
+      const payment = Array.isArray(allocation.payments) ? allocation.payments[0] : allocation.payments;
+      return !(payment?.method === "cash" && payment.reference === invoice.invoice_number);
+    });
+    if (hasExternalPayment) {
+      pageError(
+        `/invoices/${invoiceId}/edit`,
+        "This invoice has bank/cheque/customer payments allocated to it. Remove or correct those payments before transferring the invoice to another customer."
+      );
+    }
+  }
 
   const itemIds = formData.getAll("item_id").map(String);
   const descriptions = formData.getAll("description").map(String);
@@ -1061,6 +1094,8 @@ export async function updatePostedInvoice(formData: FormData) {
   const { error: invoiceUpdateError } = await supabase
     .from("invoices")
     .update({
+      customer_id: customerId,
+      subaccount_id: subaccountId,
       invoice_date: invoiceDate,
       subtotal,
       returns_total: deductionsTotal,
@@ -1072,7 +1107,7 @@ export async function updatePostedInvoice(formData: FormData) {
 
   const { error: ledgerError } = await supabase
     .from("customer_ledger_entries")
-    .update({ debit: invoiceTotal, credit: 0, entry_date: invoiceDate })
+    .update({ customer_id: customerId, subaccount_id: subaccountId, debit: invoiceTotal, credit: 0, entry_date: invoiceDate })
     .eq("invoice_id", invoiceId)
     .eq("entry_type", "invoice");
   if (ledgerError) pageError(`/invoices/${invoiceId}/edit`, `Customer balance entry could not be updated: ${errorMessage(ledgerError)}`);
@@ -1099,7 +1134,7 @@ export async function updatePostedInvoice(formData: FormData) {
         "returns",
         {
           invoice_id: invoiceId,
-          customer_id: invoice.customer_id,
+          customer_id: customerId,
           item_id: deduction.item_id,
           quantity: deduction.quantity,
           amount: deduction.amount,
@@ -1130,8 +1165,8 @@ export async function updatePostedInvoice(formData: FormData) {
         {
           invoice_id: invoiceId,
           item_id: deduction.item_id,
-          customer_id: invoice.customer_id,
-          subaccount_id: invoice.subaccount_id,
+          customer_id: customerId,
+          subaccount_id: subaccountId,
           quantity: deduction.quantity,
           estimated_cost: deduction.amount,
           balance_credit: deduction.amount,
@@ -1154,24 +1189,28 @@ export async function updatePostedInvoice(formData: FormData) {
     await supabase.from("cash_sales").update({ amount: invoiceTotal, sale_date: invoiceDate }).eq("invoice_id", invoiceId);
     await supabase
       .from("payments")
-      .update({ amount: invoiceTotal, payment_date: invoiceDate })
+      .update({ customer_id: customerId, subaccount_id: subaccountId, amount: invoiceTotal, payment_date: invoiceDate })
       .eq("customer_id", invoice.customer_id)
       .eq("reference", invoice.invoice_number)
       .eq("method", "cash");
     await supabase
       .from("customer_ledger_entries")
-      .update({ credit: invoiceTotal, debit: 0, entry_date: invoiceDate })
+      .update({ customer_id: customerId, subaccount_id: subaccountId, credit: invoiceTotal, debit: 0, entry_date: invoiceDate })
       .eq("invoice_id", invoiceId)
       .eq("entry_type", "cash_sale_payment");
   }
+  if (subaccountChanged) {
+    await supabase.from("payment_allocations").update({ subaccount_id: subaccountId }).eq("invoice_id", invoiceId);
+  }
 
-  await writeAudit(supabase, "update", "invoice", invoiceId, `Rebuilt invoice ${invoice.invoice_number}`, { subtotal, deductions_total: deductionsTotal, total: invoiceTotal, line_count: lines.length });
+  await writeAudit(supabase, "update", "invoice", invoiceId, `Rebuilt invoice ${invoice.invoice_number}`, { subtotal, deductions_total: deductionsTotal, total: invoiceTotal, line_count: lines.length, previous_customer_id: invoice.customer_id, customer_id: customerId });
   revalidatePath(`/invoices/${invoiceId}/print`);
   revalidatePath(`/invoices/${invoiceId}/edit`);
   revalidatePath(`/customers/${invoice.customer_id}`);
+  if (customerChanged) revalidatePath(`/customers/${customerId}`);
   revalidatePath("/inventory");
   revalidatePath("/reports/daily");
-  pageSuccess(`/invoices/${invoiceId}/edit`, "Invoice updated with items, deductions, and inventory corrections.");
+  pageSuccess(`/invoices/${invoiceId}/edit`, customerChanged ? "Invoice transferred and updated." : "Invoice updated with items, deductions, and inventory corrections.");
 }
 
 export async function deleteCustomerInvoice(formData: FormData) {
