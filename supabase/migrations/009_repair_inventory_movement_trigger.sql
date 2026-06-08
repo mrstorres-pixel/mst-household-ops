@@ -1,3 +1,22 @@
+create or replace function public.touch_item_quantity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update items
+  set current_quantity = current_quantity + new.quantity_delta
+  where id = new.item_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists inventory_movements_touch_item_quantity on inventory_movements;
+create trigger inventory_movements_touch_item_quantity
+after insert on inventory_movements
+for each row execute function public.touch_item_quantity();
+
 create or replace function public.post_inventory_movements_checked(movements jsonb)
 returns void
 language plpgsql
