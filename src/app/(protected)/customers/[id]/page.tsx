@@ -8,10 +8,16 @@ import { SubmitButton } from "@/components/submit-button";
 import { getCustomer, listItems } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function CustomerDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string; success?: string }> }) {
+export default async function CustomerDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; success?: string; date_from?: string; date_to?: string }>;
+}) {
   const { id } = await params;
   const query = await searchParams;
-  const data = await getCustomer(id);
+  const data = await getCustomer(id, { dateFrom: query.date_from, dateTo: query.date_to });
   const items = await listItems();
   if (!data?.customer) notFound();
   const balance = data.ledger.reduce((total, row) => total + Number(row.debit ?? 0) - Number(row.credit ?? 0), 0);
@@ -24,8 +30,8 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
       <PageHeader title={data.customer.name} description={`Customer balance: ${money(balance)}`} />
       <PageNotice error={query.error} success={query.success} />
       <div className="mb-5 grid gap-4 md:grid-cols-3">
-        <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Recent Invoice Total</p><p className="mt-2 text-2xl font-bold">{money(invoiceTotal)}</p></section>
-        <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Recent Payments</p><p className="mt-2 text-2xl font-bold">{money(paymentTotal)}</p></section>
+        <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Invoice Total</p><p className="mt-2 text-2xl font-bold">{money(invoiceTotal)}</p></section>
+        <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Payments</p><p className="mt-2 text-2xl font-bold">{money(paymentTotal)}</p></section>
         <section className="card p-4"><p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Phone</p><p className="mt-2 text-lg font-bold">{data.customer.phone ?? "-"}</p></section>
       </div>
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
@@ -146,6 +152,18 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
           </form>
         </section>
         <section className="grid gap-5">
+          <form className="card grid gap-3 p-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+            <div className="field">
+              <label>From</label>
+              <input className="input" name="date_from" type="date" defaultValue={query.date_from ?? ""} />
+            </div>
+            <div className="field">
+              <label>To</label>
+              <input className="input" name="date_to" type="date" defaultValue={query.date_to ?? ""} />
+            </div>
+            <button className="btn" type="submit">Apply</button>
+            <Link className="btn btn-secondary" href={`/customers/${id}`}>Clear</Link>
+          </form>
           <div className="card table-wrap">
             <table>
               <thead><tr><th>Default Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>

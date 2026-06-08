@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteCustomerInvoice, updatePostedInvoice } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { CustomerSubaccountSelect } from "@/components/customer-subaccount-select";
 import { InvoiceDeductions } from "@/components/invoice-deductions";
 import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
@@ -43,21 +44,7 @@ export default async function EditInvoicePage({
       <form action={updatePostedInvoice} className="grid gap-5">
         <input type="hidden" name="invoice_id" value={id} />
         <section className="card grid gap-4 p-5 md:grid-cols-3">
-          <div className="field">
-            <label>Customer</label>
-            <select className="input" name="customer_id" defaultValue={data.invoice.customer_id} required>
-              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Sub-balance</label>
-            <select className="input" name="subaccount_id" defaultValue={data.invoice.subaccount_id ?? ""}>
-              <option value="">None</option>
-              {customers.flatMap((customer) => (customer.customer_subaccounts ?? []).map((sub) => (
-                <option key={sub.id} value={sub.id}>{customer.name}: {sub.name}</option>
-              )))}
-            </select>
-          </div>
+          <CustomerSubaccountSelect customers={customers} initialCustomerId={data.invoice.customer_id} initialSubaccountId={data.invoice.subaccount_id} />
           <p><strong>Current Total</strong><br />{money(data.invoice.total)}</p>
           <p><strong>Current Deductions</strong><br />{money(data.invoice.returns_total)}</p>
           <div className="field">

@@ -185,7 +185,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                         </form>
                         <form action={permanentlyDeleteItem} className="mt-2">
                           <input type="hidden" name="item_id" value={item.id} />
-                          <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Items with invoices, stock movements, damages, or supplier history may be blocked by the database." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
+                          <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="Use permanent delete only for mistaken items with no history. If this item has invoices, stock movements, damages, or supplier records, archive it instead." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
                         </form>
                       </details>
                     </td>
@@ -222,7 +222,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     </form>
                     <form action={permanentlyDeleteItem}>
                       <input type="hidden" name="item_id" value={item.id} />
-                      <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Restore the item instead if you need to keep it available." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
+                      <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="Use permanent delete only for mistaken items with no history. If this item has invoices, stock movements, damages, or supplier records, keep it archived." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
                     </form>
                   </td>
                 </tr>

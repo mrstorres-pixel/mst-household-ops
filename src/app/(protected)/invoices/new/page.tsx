@@ -1,5 +1,6 @@
 import { Camera, ReceiptText } from "lucide-react";
 import { createInvoice } from "@/app/actions";
+import { CustomerSubaccountSelect } from "@/components/customer-subaccount-select";
 import { InvoiceDeductions } from "@/components/invoice-deductions";
 import { InvoiceLines } from "@/components/invoice-lines";
 import { PageHeader } from "@/components/page-header";
@@ -32,21 +33,7 @@ export default async function NewInvoicePage({ searchParams }: { searchParams: P
             </div>
             <ReceiptText className="h-5 w-5 text-[color:var(--primary)]" />
           </div>
-          <div className="field">
-            <label>Customer</label>
-            <select className="input" name="customer_id" defaultValue={params.customer_id ?? ""} required>
-              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Sub-balance</label>
-            <select className="input" name="subaccount_id" defaultValue={params.subaccount_id ?? ""}>
-              <option value="">None</option>
-              {customers.flatMap((customer) => (customer.customer_subaccounts ?? []).map((sub) => (
-                <option key={sub.id} value={sub.id}>{customer.name}: {sub.name}</option>
-              )))}
-            </select>
-          </div>
+          <CustomerSubaccountSelect customers={customers} initialCustomerId={params.customer_id} initialSubaccountId={params.subaccount_id} />
           <div className="field">
             <label>Invoice Date</label>
             <input className="input" name="invoice_date" type="date" defaultValue={todayISO()} />

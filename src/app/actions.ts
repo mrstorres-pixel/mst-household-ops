@@ -709,11 +709,11 @@ export async function permanentlyDeleteItem(formData: FormData) {
   const itemId = text(formData, "item_id");
   const { error } = await supabase.from("items").delete().eq("id", itemId);
   if (error) {
-    redirect(
-      `/inventory?error=${encodeURIComponent(
-        `Item could not be permanently deleted: ${errorMessage(error)} If this item has invoices, stock movements, damages, supplier invoices, or other history, archive it instead.`
-      )}`
-    );
+    const message =
+      error.code === "23503"
+        ? "This item already has transaction history, so it cannot be permanently deleted. Archive it instead to hide it while keeping invoices, stock movements, supplier records, and reports correct."
+        : `Item could not be permanently deleted: ${errorMessage(error)}`;
+    redirect(`/inventory?error=${encodeURIComponent(message)}`);
   }
   await writeAudit(supabase, "delete_permanent", "item", itemId, "Permanently deleted item");
   revalidatePath("/inventory");

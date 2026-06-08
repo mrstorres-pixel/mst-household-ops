@@ -35,6 +35,15 @@ export type CustomerDirectoryOptions = {
   pageSize?: number;
 };
 
+export type DateRangeOptions = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type SupplierActivityOptions = DateRangeOptions & {
+  supplierId?: string;
+};
+
 type SupplierInvoiceSummary = {
   [key: string]: unknown;
   id: string;
@@ -164,10 +173,26 @@ export async function listCustomerDirectory(options: CustomerDirectoryOptions = 
   return { customers, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
-export async function getCustomer(id: string) {
+export async function getCustomer(id: string, options: DateRangeOptions = {}) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
+  let ledgerQuery = supabase.from("customer_ledger_entries").select("*").eq("customer_id", id);
+  let invoiceQuery = supabase.from("invoices").select("id, invoice_number, invoice_date, total, status").eq("customer_id", id);
+  let paymentQuery = supabase.from("payments").select("payment_date, method, amount, reference").eq("customer_id", id);
+
+  if (options.dateFrom) {
+    ledgerQuery = ledgerQuery.gte("entry_date", options.dateFrom);
+    invoiceQuery = invoiceQuery.gte("invoice_date", options.dateFrom);
+    paymentQuery = paymentQuery.gte("payment_date", options.dateFrom);
+  }
+
+  if (options.dateTo) {
+    ledgerQuery = ledgerQuery.lte("entry_date", options.dateTo);
+    invoiceQuery = invoiceQuery.lte("invoice_date", options.dateTo);
+    paymentQuery = paymentQuery.lte("payment_date", options.dateTo);
+  }
+
   const [{ data: customer }, { data: subaccounts }, { data: template }, { data: ledger }, { data: invoices }, { data: payments }] = await Promise.all([
     supabase.from("customers").select("*").eq("id", id).maybeSingle(),
     supabase.from("customer_subaccount_balances").select("*").eq("customer_id", id).order("name"),
@@ -176,24 +201,9 @@ export async function getCustomer(id: string) {
       .select("*, items(name, sku, default_price)")
       .eq("customer_id", id)
       .order("created_at"),
-    supabase
-      .from("customer_ledger_entries")
-      .select("*")
-      .eq("customer_id", id)
-      .order("entry_date", { ascending: false })
-      .limit(50),
-    supabase
-      .from("invoices")
-      .select("id, invoice_number, invoice_date, total, status")
-      .eq("customer_id", id)
-      .order("invoice_date", { ascending: false })
-      .limit(20),
-    supabase
-      .from("payments")
-      .select("payment_date, method, amount, reference")
-      .eq("customer_id", id)
-      .order("payment_date", { ascending: false })
-      .limit(20)
+    ledgerQuery.order("entry_date", { ascending: false }).limit(100),
+    invoiceQuery.order("invoice_date", { ascending: false }).limit(100),
+    paymentQuery.order("payment_date", { ascending: false }).limit(100)
   ]);
   return { customer, subaccounts: subaccounts ?? [], template: template ?? [], ledger: ledger ?? [], invoices: invoices ?? [], payments: payments ?? [] };
 }
@@ -377,27 +387,31 @@ export async function listSupplierRows() {
   return data ?? [];
 }
 
-export async function listSupplierAdjustments() {
+export async function listSupplierAdjustments(options: SupplierActivityOptions = {}) {
   noStore();
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
-  const { data } = await supabase
+  let query = supabase
     .from("supplier_adjustments")
-    .select("*, suppliers(name), items(name, sku)")
-    .order("adjustment_date", { ascending: false })
-    .limit(100);
+    .select("*, suppliers(name), items(name, sku)");
+  if (options.supplierId) query = query.eq("supplier_id", options.supplierId);
+  if (options.dateFrom) query = query.gte("adjustment_date", options.dateFrom);
+  if (options.dateTo) query = query.lte("adjustment_date", options.dateTo);
+  const { data } = await query.order("adjustment_date", { ascending: false }).limit(200);
   return data ?? [];
 }
 
-export async function listSupplierInvoices() {
+export async function listSupplierInvoices(options: SupplierActivityOptions = {}) {
   noStore();
   if (!hasSupabaseEnv()) return [];
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let summaryQuery = supabase
     .from("supplier_invoice_summaries")
-    .select("*")
-    .order("order_date", { ascending: false })
-    .limit(100);
+    .select("*");
+  if (options.supplierId) summaryQuery = summaryQuery.eq("supplier_id", options.supplierId);
+  if (options.dateFrom) summaryQuery = summaryQuery.gte("order_date", options.dateFrom);
+  if (options.dateTo) summaryQuery = summaryQuery.lte("order_date", options.dateTo);
+  const { data, error } = await summaryQuery.order("order_date", { ascending: false }).limit(200);
   if (!error && data) {
     return data.map((row) => ({
       ...row,
@@ -411,11 +425,13 @@ export async function listSupplierInvoices() {
     }));
   }
 
-  const { data: fallbackData } = await supabase
+  let fallbackQuery = supabase
     .from("purchase_orders")
-    .select("*, suppliers(name), items(name, sku), app_files(id, file_name)")
-    .order("order_date", { ascending: false })
-    .limit(100);
+    .select("*, suppliers(name), items(name, sku), app_files(id, file_name)");
+  if (options.supplierId) fallbackQuery = fallbackQuery.eq("supplier_id", options.supplierId);
+  if (options.dateFrom) fallbackQuery = fallbackQuery.gte("order_date", options.dateFrom);
+  if (options.dateTo) fallbackQuery = fallbackQuery.lte("order_date", options.dateTo);
+  const { data: fallbackData } = await fallbackQuery.order("order_date", { ascending: false }).limit(200);
   return groupSupplierInvoiceRows(fallbackData ?? []);
 }
 

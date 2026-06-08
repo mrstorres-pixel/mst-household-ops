@@ -30,6 +30,7 @@ export default async function InventoryItemDetailPage({
   const item = data.item;
   const badge = statusBadge(item);
   const stockValue = Number(item.current_quantity ?? 0) * Number(item.unit_cost ?? 0);
+  const hasVisibleHistory = Boolean(data.movements.length || data.invoiceItems.length || data.purchases.length || data.damages.length);
 
   return (
     <>
@@ -167,10 +168,14 @@ export default async function InventoryItemDetailPage({
               <input type="hidden" name="item_id" value={item.id} />
               <ConfirmSubmitButton className="btn btn-warning" pendingText="Archiving..." title="Archive item?" message="This hides the item from active inventory lists while keeping its history." confirmLabel="Archive Item">Archive Item</ConfirmSubmitButton>
             </form>
-            <form action={permanentlyDeleteItem}>
-              <input type="hidden" name="item_id" value={item.id} />
-              <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Items with invoices, stock movements, damages, or supplier history may be blocked by the database." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
-            </form>
+            {hasVisibleHistory ? (
+              <p className="text-sm font-semibold text-[color:var(--muted-foreground)]">Permanent delete is disabled because this item has transaction history. Archive it to hide it from active inventory.</p>
+            ) : (
+              <form action={permanentlyDeleteItem}>
+                <input type="hidden" name="item_id" value={item.id} />
+                <ConfirmSubmitButton pendingText="Deleting..." title="Permanently delete item?" message="This cannot be undone. Use permanent delete only for items that were created by mistake and have no history." confirmLabel="Permanent Delete">Permanent Delete</ConfirmSubmitButton>
+              </form>
+            )}
           </div>
         </aside>
       </section>

@@ -10,9 +10,16 @@ import { SupplierInvoiceLines } from "@/components/supplier-invoice-lines";
 import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
-export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
+export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string; supplier_id?: string; date_from?: string; date_to?: string }> }) {
   const params = await searchParams;
-  const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([listSuppliers(), listSupplierRows(), listItems(), listSupplierAdjustments(), listSupplierInvoices()]);
+  const activityFilters = { supplierId: params.supplier_id, dateFrom: params.date_from, dateTo: params.date_to };
+  const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([
+    listSuppliers(),
+    listSupplierRows(),
+    listItems(),
+    listSupplierAdjustments(activityFilters),
+    listSupplierInvoices(activityFilters)
+  ]);
   const supplierBalanceTotal = suppliers.reduce((sum, supplier) => sum + Number(supplier.balance ?? 0), 0);
   const recentInvoiceTotal = supplierInvoices.reduce((sum, invoice) => sum + Number(invoice.total ?? 0), 0);
   const recentAdjustmentTotal = adjustments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
@@ -106,6 +113,25 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
       </section>
 
       <section className="mt-5 grid gap-5 xl:grid-cols-2">
+        <form className="card grid gap-3 p-4 xl:col-span-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto] md:items-end">
+          <div className="field">
+            <label>Supplier</label>
+            <select className="input" name="supplier_id" defaultValue={params.supplier_id ?? ""}>
+              <option value="">All suppliers</option>
+              {supplierRows.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>From</label>
+            <input className="input" name="date_from" type="date" defaultValue={params.date_from ?? ""} />
+          </div>
+          <div className="field">
+            <label>To</label>
+            <input className="input" name="date_to" type="date" defaultValue={params.date_to ?? ""} />
+          </div>
+          <button className="btn" type="submit">Apply</button>
+          <Link className="btn btn-secondary" href="/suppliers">Clear</Link>
+        </form>
         <section className="card table-wrap">
           <div className="border-b border-[color:var(--border)] p-4">
             <h3 className="font-bold">Recent Supplier Invoices</h3>
