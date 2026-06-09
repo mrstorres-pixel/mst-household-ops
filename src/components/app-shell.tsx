@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   Banknote,
   Boxes,
@@ -15,6 +14,7 @@ import {
   Users
 } from "lucide-react";
 import { signOut } from "@/app/actions";
+import { NavLink } from "@/components/nav-link";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
@@ -45,6 +45,9 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
+      <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:font-bold focus:text-[color:var(--primary)]" href="#main-content">
+        Skip to content
+      </a>
       <aside className="no-print sticky top-0 z-30 border-b border-[color:var(--border)] bg-[#20231f] text-white shadow-lg shadow-black/10 lg:h-screen lg:border-b-0">
         <div className="flex items-start justify-between gap-4 p-4 lg:block lg:p-5">
           <div className="min-w-0">
@@ -64,14 +67,13 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
         <div className="grid gap-3 px-3 pb-4 lg:hidden">
           <div className="grid grid-cols-3 gap-2">
             {quickNav.map((item) => (
-              <Link
+              <NavLink
                 href={item.href}
                 key={item.href}
-                className="grid min-h-14 place-items-center gap-1 rounded-lg border border-white/10 bg-white/8 px-2 py-2 text-center text-xs font-bold text-[#f7f7f4]"
-              >
-                <item.icon className="h-4 w-4" aria-hidden="true" />
-                <span>{item.label}</span>
-              </Link>
+                label={item.label}
+                icon={item.icon}
+                variant="quick"
+              />
             ))}
           </div>
           <details className="mobile-menu rounded-lg border border-white/10 bg-white/5">
@@ -81,28 +83,25 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             </summary>
             <nav className="grid gap-1 border-t border-white/10 p-2">
               {nav.map((item) => (
-                <Link
+                <NavLink
                   href={item.href}
                   key={item.href}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#f7f7f4] hover:bg-white/10"
-                >
-                  <item.icon className="h-4 w-4" aria-hidden="true" />
-                  {item.label}
-                </Link>
+                  label={item.label}
+                  icon={item.icon}
+                  variant="mobile"
+                />
               ))}
             </nav>
           </details>
         </div>
         <nav className="hidden gap-1 px-3 pb-5 lg:grid">
           {nav.map((item) => (
-            <Link
+            <NavLink
               href={item.href}
               key={item.href}
-              className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-[#f7f7f4] hover:bg-white/10 lg:gap-3"
-            >
-              <item.icon className="h-4 w-4" aria-hidden="true" />
-              {item.label}
-            </Link>
+              label={item.label}
+              icon={item.icon}
+            />
           ))}
           {userEmail ? (
             <form action={signOut} className="mt-3">
@@ -113,9 +112,14 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
           ) : null}
         </nav>
       </aside>
-      <main className="min-w-0 px-4 py-5 md:px-7 md:py-7">
+      <main id="main-content" className="min-w-0 px-4 py-5 md:px-7 md:py-7">
         <div className="mx-auto w-full max-w-[1500px]">{children}</div>
       </main>
+      <nav className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 gap-1 border-t border-[color:var(--border)] bg-white/95 px-2 py-2 shadow-2xl backdrop-blur lg:hidden">
+        {quickNav.map((item) => (
+          <NavLink href={item.href} key={item.href} label={item.label} icon={item.icon} variant="bottom" />
+        ))}
+      </nav>
     </div>
   );
 }
