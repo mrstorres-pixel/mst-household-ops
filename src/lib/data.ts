@@ -775,7 +775,7 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     ? supabase.from("suppliers").select("*").eq("id", supplierId).maybeSingle()
     : Promise.resolve({ data: null });
 
-  const [supplier, invoices, adjustments, payments] = await Promise.all([
+  const [supplier, invoices, adjustments, payments, overridesResult] = await Promise.all([
     supplierPromise,
     supplierId
       ? supabase
@@ -806,12 +806,40 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
           .lte("payment_date", endDate)
           .order("payment_date")
           .order("created_at")
+      : Promise.resolve({ data: [] }),
+    supplierId
+      ? supabase
+          .from("supplier_cutoff_report_overrides")
+          .select("*")
+          .eq("supplier_id", supplierId)
+          .eq("start_date", startDate)
+          .eq("end_date", endDate)
+          .order("created_at")
       : Promise.resolve({ data: [] })
   ]);
 
   const invoiceRows = invoices.data ?? [];
   const adjustmentRows = adjustments.data ?? [];
-  const paymentRows = payments.data ?? [];
+  const overrideRows = overridesResult && "error" in overridesResult && overridesResult.error && isMissingColumnError(overridesResult.error) ? [] : overridesResult.data ?? [];
+  const hiddenCounterKeys = new Set(
+    overrideRows
+      .filter((override) => override.action === "hide" && override.row_kind === "counter" && override.source_key)
+      .map((override) => String(override.source_key))
+  );
+  const hiddenPaymentKeys = new Set(
+    overrideRows
+      .filter((override) => override.action === "hide" && override.row_kind === "payment" && override.source_key)
+      .map((override) => String(override.source_key))
+  );
+  const hiddenRows = overrideRows.filter((override) => override.action === "hide");
+  const paymentRows = (payments.data ?? [])
+    .map((payment) => ({
+      ...payment,
+      source_key: `payment:${payment.id}`,
+      override_id: "",
+      is_manual: false
+    }))
+    .filter((payment) => !hiddenPaymentKeys.has(String(payment.source_key)));
   const invoiceGroupByPurchaseId = new Map<string, string>();
   for (const invoice of invoiceRows) {
     const invoiceNumber = String(invoice.supplier_invoice_number ?? "").trim();
@@ -827,7 +855,7 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     adjustmentsByGroupId.set(groupKey, (adjustmentsByGroupId.get(groupKey) ?? 0) + Number(adjustment.amount ?? 0));
   }
 
-  const invoiceGroups = new Map<string, { id: string; date: string; reference: string; delivered: number }>();
+  const invoiceGroups = new Map<string, { id: string; source_key: string; date: string; reference: string; delivered: number }>();
   for (const invoice of invoiceRows) {
     const invoiceNumber = String(invoice.supplier_invoice_number ?? "").trim();
     const groupKey = invoiceNumber ? `${supplierId}:${invoiceNumber}` : String(invoice.id);
@@ -836,6 +864,7 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     if (!existing) {
       invoiceGroups.set(groupKey, {
         id: groupKey,
+        source_key: `invoice:${groupKey}`,
         date: invoice.order_date,
         reference: invoiceNumber || String(invoice.id).slice(0, 8),
         delivered
@@ -851,20 +880,28 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     const returned = adjustmentsByGroupId.get(String(invoice.id)) ?? 0;
     return {
       id: invoice.id,
+      source_key: invoice.source_key,
+      override_id: "",
+      is_manual: false,
       date: invoice.date,
       reference: invoice.reference,
       delivered,
       returned,
       amount: delivered - returned
     };
-  });
+  }).filter((row) => !hiddenCounterKeys.has(row.source_key));
 
   const linkedAdjustmentIds = new Set(invoiceRows.map((invoice) => String(invoice.id)));
   const unlinkedAdjustments = adjustmentRows.filter((adjustment) => !adjustment.purchase_order_id || !linkedAdjustmentIds.has(String(adjustment.purchase_order_id)));
   for (const adjustment of unlinkedAdjustments) {
     const amount = Number(adjustment.amount ?? 0);
+    const sourceKey = `adjustment:${adjustment.id}`;
+    if (hiddenCounterKeys.has(sourceKey)) continue;
     counterRows.push({
       id: String(adjustment.id),
+      source_key: sourceKey,
+      override_id: "",
+      is_manual: false,
       date: adjustment.adjustment_date,
       reference: adjustment.reason || adjustment.adjustment_type,
       delivered: 0,
@@ -873,7 +910,35 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     });
   }
 
+  for (const override of overrideRows.filter((row) => row.action === "manual" && row.row_kind === "counter")) {
+    counterRows.push({
+      id: String(override.id),
+      source_key: "",
+      override_id: String(override.id),
+      is_manual: true,
+      date: override.row_date ?? startDate,
+      reference: override.reference || "Manual cutoff row",
+      delivered: Number(override.delivered ?? 0),
+      returned: Number(override.returned ?? 0),
+      amount: Number(override.amount ?? 0)
+    });
+  }
+
+  for (const override of overrideRows.filter((row) => row.action === "manual" && row.row_kind === "payment")) {
+    paymentRows.push({
+      id: String(override.id),
+      source_key: "",
+      override_id: String(override.id),
+      is_manual: true,
+      payment_date: override.row_date ?? startDate,
+      reference: override.reference || "Manual payment",
+      notes: null,
+      amount: Number(override.amount ?? 0)
+    });
+  }
+
   counterRows.sort((first, second) => String(first.date).localeCompare(String(second.date)));
+  paymentRows.sort((first, second) => String(first.payment_date).localeCompare(String(second.payment_date)));
   const deliveredTotal = counterRows.reduce((sum, row) => sum + row.delivered, 0);
   const returnTotal = counterRows.reduce((sum, row) => sum + row.returned, 0);
   const invoiceTotal = counterRows.reduce((sum, row) => sum + row.amount, 0);
@@ -883,6 +948,7 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     supplier: supplier.data,
     counterRows,
     paymentRows,
+    hiddenRows,
     deliveredTotal,
     returnTotal,
     invoiceTotal,

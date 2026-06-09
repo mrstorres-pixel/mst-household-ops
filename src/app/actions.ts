@@ -2277,6 +2277,106 @@ export async function saveCutoffSummary(formData: FormData) {
   revalidatePath("/reports/cutoff");
 }
 
+function supplierCutoffReturnPath(formData: FormData) {
+  return text(formData, "return_path") || "/reports/suppliers/cutoff";
+}
+
+export async function hideSupplierCutoffRow(formData: FormData) {
+  const supabase = await requireSupabase();
+  const supplierId = text(formData, "supplier_id");
+  const startDate = text(formData, "start_date");
+  const endDate = text(formData, "end_date");
+  const rowKind = text(formData, "row_kind");
+  const sourceKey = text(formData, "source_key");
+  const rowDate = text(formData, "row_date") || null;
+  const reference = text(formData, "reference") || null;
+  const delivered = asNumber(formData.get("delivered"));
+  const returned = asNumber(formData.get("returned"));
+  const amount = asNumber(formData.get("amount"));
+  const returnPath = supplierCutoffReturnPath(formData);
+
+  if (!supplierId || !startDate || !endDate || !sourceKey) pageError(returnPath, "Cutoff row could not be identified.");
+  if (!["counter", "payment"].includes(rowKind)) pageError(returnPath, "Invalid cutoff row type.");
+
+  await supabase
+    .from("supplier_cutoff_report_overrides")
+    .delete()
+    .eq("supplier_id", supplierId)
+    .eq("start_date", startDate)
+    .eq("end_date", endDate)
+    .eq("row_kind", rowKind)
+    .eq("source_key", sourceKey);
+  const { error } = await supabase.from("supplier_cutoff_report_overrides").insert({
+    supplier_id: supplierId,
+    start_date: startDate,
+    end_date: endDate,
+    row_kind: rowKind,
+    source_key: sourceKey,
+    action: "hide",
+    row_date: rowDate,
+    reference,
+    delivered,
+    returned,
+    amount
+  });
+  if (error) pageError(returnPath, `Cutoff row could not be removed: ${errorMessage(error)}`);
+  await writeAudit(supabase, "update", "supplier_cutoff_report", supplierId, "Removed row from supplier cutoff report", { rowKind, sourceKey, startDate, endDate });
+  revalidatePath("/reports/suppliers/cutoff");
+  pageSuccess(returnPath, "Cutoff row removed from this report.");
+}
+
+export async function addSupplierCutoffRow(formData: FormData) {
+  const supabase = await requireSupabase();
+  const supplierId = text(formData, "supplier_id");
+  const startDate = text(formData, "start_date");
+  const endDate = text(formData, "end_date");
+  const rowKind = text(formData, "row_kind");
+  const rowDate = text(formData, "row_date") || startDate;
+  const reference = text(formData, "reference");
+  const delivered = asNumber(formData.get("delivered"));
+  const returned = asNumber(formData.get("returned"));
+  const submittedAmount = asNumber(formData.get("amount"));
+  const amount = rowKind === "counter" && submittedAmount === 0 ? delivered - returned : submittedAmount;
+  const returnPath = supplierCutoffReturnPath(formData);
+
+  if (!supplierId || !startDate || !endDate) pageError(returnPath, "Select a supplier and cutoff before adding a row.");
+  if (!["counter", "payment"].includes(rowKind)) pageError(returnPath, "Invalid cutoff row type.");
+  if (!rowDate) pageError(returnPath, "Row date is required.");
+  if (delivered < 0 || returned < 0 || amount < 0) pageError(returnPath, "Cutoff row amounts cannot be negative.");
+  if (rowKind === "counter" && delivered === 0 && returned === 0 && amount === 0) pageError(returnPath, "Add a delivered, return, or amount value.");
+  if (rowKind === "payment" && amount <= 0) pageError(returnPath, "Payment amount must be greater than zero.");
+
+  const { error } = await supabase.from("supplier_cutoff_report_overrides").insert({
+    supplier_id: supplierId,
+    start_date: startDate,
+    end_date: endDate,
+    row_kind: rowKind,
+    action: "manual",
+    row_date: rowDate,
+    reference: reference || (rowKind === "counter" ? "Manual cutoff row" : "Manual payment"),
+    delivered: rowKind === "counter" ? delivered : 0,
+    returned: rowKind === "counter" ? returned : 0,
+    amount
+  });
+  if (error) pageError(returnPath, `Manual cutoff row could not be added: ${errorMessage(error)}`);
+  await writeAudit(supabase, "create", "supplier_cutoff_report", supplierId, "Added manual supplier cutoff row", { rowKind, rowDate, reference, amount });
+  revalidatePath("/reports/suppliers/cutoff");
+  pageSuccess(returnPath, "Manual cutoff row added.");
+}
+
+export async function deleteSupplierCutoffOverride(formData: FormData) {
+  const supabase = await requireSupabase();
+  const overrideId = text(formData, "override_id");
+  const returnPath = supplierCutoffReturnPath(formData);
+  if (!overrideId) pageError(returnPath, "Cutoff edit could not be identified.");
+
+  const { error } = await supabase.from("supplier_cutoff_report_overrides").delete().eq("id", overrideId);
+  if (error) pageError(returnPath, `Cutoff edit could not be removed: ${errorMessage(error)}`);
+  await writeAudit(supabase, "delete", "supplier_cutoff_report", overrideId, "Removed supplier cutoff edit");
+  revalidatePath("/reports/suppliers/cutoff");
+  pageSuccess(returnPath, "Cutoff edit removed.");
+}
+
 export async function updateSettings(formData: FormData) {
   const supabase = await requireSupabase();
   await supabase.from("app_settings").upsert(
