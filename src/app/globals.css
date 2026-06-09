@@ -21,6 +21,7 @@
 
 html {
   color-scheme: light;
+  scroll-padding-top: 6rem;
 }
 
 body {
@@ -41,6 +42,15 @@ textarea {
   font: inherit;
 }
 
+button,
+summary,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
 a {
   text-underline-offset: 0.18em;
 }
@@ -57,6 +67,19 @@ a {
 
   body {
     background: white;
+  }
+
+  .card {
+    box-shadow: none;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    background: transparent;
+  }
+
+  table {
+    min-width: 0 !important;
   }
 }
 
@@ -83,6 +106,10 @@ a {
   color: var(--foreground);
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+select.input {
+  padding-right: 2rem;
 }
 
 .input:focus {
@@ -155,6 +182,10 @@ a {
   transform: none;
 }
 
+.btn:active {
+  transform: translateY(0);
+}
+
 .badge {
   display: inline-flex;
   min-height: 1.5rem;
@@ -211,10 +242,37 @@ a {
   box-shadow: var(--surface-shadow);
 }
 
+details.card,
+details.border {
+  overflow: hidden;
+}
+
+summary {
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary:focus-visible {
+  outline: 3px solid rgb(37 99 235 / 0.25);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.mobile-menu[open] summary {
+  background: rgb(255 255 255 / 0.08);
+}
+
 .table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, white 30%, rgb(255 255 255 / 0)) left center / 1.5rem 100% no-repeat,
+    linear-gradient(270deg, white 30%, rgb(255 255 255 / 0)) right center / 1.5rem 100% no-repeat;
 }
 
 table {
@@ -230,6 +288,7 @@ td {
   text-align: left;
   vertical-align: top;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 th {
@@ -257,6 +316,58 @@ td .btn {
   font-size: 0.88rem;
 }
 
+td form,
+td details {
+  max-width: 100%;
+}
+
+td details > summary {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+}
+
+td input,
+td select,
+td textarea {
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  table {
+    min-width: 760px;
+  }
+
+  th,
+  td {
+    font-size: 0.92rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .table-wrap {
+    margin-right: -1rem;
+    margin-left: -1rem;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  table {
+    min-width: 820px;
+  }
+
+  .card > .table-wrap:first-child {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+
+  .card > .table-wrap:last-child {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+}
+
 @media (max-width: 640px) {
   body {
     background: var(--background);
@@ -272,8 +383,21 @@ td .btn {
     min-height: 2.75rem;
   }
 
+  .btn {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .badge {
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+  }
+
   .sticky-actions {
-    padding: 0.75rem;
+    margin-right: -1rem;
+    margin-left: -1rem;
+    padding: 0.75rem 1rem;
   }
 
   .sticky-actions .btn {
@@ -282,5 +406,26 @@ td .btn {
 
   .card {
     box-shadow: 0 1px 2px rgb(32 35 31 / 0.06);
+  }
+
+  .card.p-5,
+  .card.grid.gap-4.p-5,
+  .card.grid.gap-3.p-5 {
+    padding: 1rem;
+  }
+
+  details .min-w-72 {
+    min-width: min(18rem, calc(100vw - 3rem));
+  }
+}
+
+@media (max-width: 420px) {
+  th,
+  td {
+    padding: 0.55rem;
+  }
+
+  table {
+    min-width: 760px;
   }
 }

@@ -6,6 +6,7 @@ import {
   Gauge,
   HandCoins,
   Landmark,
+  Menu,
   PackageSearch,
   ReceiptText,
   Search,
@@ -40,6 +41,8 @@ type AppShellProps = {
 };
 
 export function AppShell({ children, userEmail, role }: AppShellProps) {
+  const quickNav = nav.filter((item) => ["/dashboard", "/search", "/invoices/new"].includes(item.href));
+
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
       <aside className="no-print sticky top-0 z-30 border-b border-[color:var(--border)] bg-[#20231f] text-white shadow-lg shadow-black/10 lg:h-screen lg:border-b-0">
@@ -58,7 +61,39 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             </form>
           ) : null}
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-4 lg:grid lg:overflow-visible lg:pb-5">
+        <div className="grid gap-3 px-3 pb-4 lg:hidden">
+          <div className="grid grid-cols-3 gap-2">
+            {quickNav.map((item) => (
+              <Link
+                href={item.href}
+                key={item.href}
+                className="grid min-h-14 place-items-center gap-1 rounded-lg border border-white/10 bg-white/8 px-2 py-2 text-center text-xs font-bold text-[#f7f7f4]"
+              >
+                <item.icon className="h-4 w-4" aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </div>
+          <details className="mobile-menu rounded-lg border border-white/10 bg-white/5">
+            <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-sm font-bold">
+              <span className="inline-flex items-center gap-2"><Menu className="h-4 w-4" aria-hidden="true" /> All Sections</span>
+              <span className="text-xs uppercase text-[#c9c6bb]">Open</span>
+            </summary>
+            <nav className="grid gap-1 border-t border-white/10 p-2">
+              {nav.map((item) => (
+                <Link
+                  href={item.href}
+                  key={item.href}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-[#f7f7f4] hover:bg-white/10"
+                >
+                  <item.icon className="h-4 w-4" aria-hidden="true" />
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </details>
+        </div>
+        <nav className="hidden gap-1 px-3 pb-5 lg:grid">
           {nav.map((item) => (
             <Link
               href={item.href}
@@ -70,7 +105,7 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             </Link>
           ))}
           {userEmail ? (
-            <form action={signOut} className="mt-3 hidden lg:block">
+            <form action={signOut} className="mt-3">
               <button className="btn btn-secondary w-full" type="submit">
                 Sign out
               </button>

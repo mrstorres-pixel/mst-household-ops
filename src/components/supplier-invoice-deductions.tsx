@@ -73,7 +73,15 @@ export function SupplierInvoiceDeductions({ items, initialLines }: { items: Item
         </div>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="min-w-[900px]">
+          <colgroup>
+            <col className="w-40" />
+            <col className="w-[24rem]" />
+            <col className="w-28" />
+            <col className="w-40" />
+            <col />
+            <col className="w-28" />
+          </colgroup>
           <thead>
             <tr><th>Type</th><th>Item</th><th>Qty</th><th>Deduction Amount</th><th>Reason</th><th>Action</th></tr>
           </thead>
@@ -97,8 +105,8 @@ export function SupplierInvoiceDeductions({ items, initialLines }: { items: Item
                     {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
                   </select>
                 </td>
-                <td><input className="input" name="supplier_deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
-                <td><input className="input" name="supplier_deduction_amount" type="number" step="0.01" value={line.amount} onChange={(event) => updateLine(index, { amount: event.target.value })} /></td>
+                <td><input className="input text-right" name="supplier_deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
+                <td><input className="input text-right" name="supplier_deduction_amount" type="number" step="0.01" value={line.amount} onChange={(event) => updateLine(index, { amount: event.target.value })} /></td>
                 <td><input className="input" name="supplier_deduction_reason" value={line.reason} onChange={(event) => updateLine(index, { reason: event.target.value })} /></td>
                 <td>
                   <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>

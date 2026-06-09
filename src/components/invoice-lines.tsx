@@ -81,7 +81,16 @@ export function InvoiceLines({ items, initialLines, initialRowCount = 5 }: { ite
         <StatusBadge tone={total > 0 ? "good" : "neutral"}>{money(total)}</StatusBadge>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="min-w-[1040px]">
+          <colgroup>
+            <col className="w-28" />
+            <col className="w-[22rem]" />
+            <col className="w-36" />
+            <col />
+            <col className="w-36" />
+            <col className="w-36" />
+            <col className="w-28" />
+          </colgroup>
           <thead>
             <tr><th>Qty</th><th>Item</th><th>Stock</th><th>Description</th><th>Unit Price</th><th>Total</th><th>Action</th></tr>
           </thead>
@@ -95,7 +104,7 @@ export function InvoiceLines({ items, initialLines, initialRowCount = 5 }: { ite
               return (
                 <tr key={index}>
                   <td>
-                    <input className="input" name="quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
+                    <input className="input text-right" name="quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} />
                   </td>
                   <td>
                     <select className="input" name="item_id" required={index === 0} value={line.itemId} onChange={(event) => selectItem(index, event.target.value)}>
@@ -117,9 +126,9 @@ export function InvoiceLines({ items, initialLines, initialRowCount = 5 }: { ite
                     <input className="input" name="description" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} />
                   </td>
                   <td>
-                    <input className="input" name="unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} />
+                    <input className="input text-right" name="unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} />
                   </td>
-                  <td className="font-bold">{money(lineTotal)}</td>
+                  <td className="text-right font-bold">{money(lineTotal)}</td>
                   <td>
                     <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>
                       Remove
