@@ -479,7 +479,9 @@ export async function getInvoice(id: string) {
       item_name: row.items?.name ?? null,
       item_sku: row.items?.sku ?? null,
       item_default_price: row.items?.default_price ?? 0,
+      unit_price: row.unit_price ?? row.items?.default_price ?? 0,
       quantity: row.quantity,
+      charge: row.charge ?? null,
       amount: row.amount,
       reason: row.reason ?? "",
       sort_order: Number(row.sort_order ?? index)
@@ -490,7 +492,9 @@ export async function getInvoice(id: string) {
       item_name: (row.items as Row | null | undefined)?.name ?? null,
       item_sku: (row.items as Row | null | undefined)?.sku ?? null,
       item_default_price: (row.items as Row | null | undefined)?.default_price ?? 0,
+      unit_price: row.unit_price ?? (row.items as Row | null | undefined)?.default_price ?? 0,
       quantity: row.quantity,
+      charge: row.return_charge ?? null,
       amount: row.balance_credit ?? row.estimated_cost,
       reason: String(row.reason ?? "").replace(`${invoice.invoice_number}:`, "").trim(),
       sort_order: Number(row.sort_order ?? index)

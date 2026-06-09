@@ -15,6 +15,7 @@ type DeductionLine = {
   stockCondition: "good" | "bad";
   itemId: string;
   quantity: string;
+  unitPrice: string;
   charge: string;
   reason: string;
 };
@@ -23,7 +24,9 @@ type InitialDeductionLine = {
   type?: "return" | "damage" | string | null;
   item_id?: string | null;
   item_default_price?: number | string | null;
+  unit_price?: number | string | null;
   quantity?: number | string | null;
+  charge?: number | string | null;
   amount?: number | string | null;
   reason?: string | null;
 };
@@ -32,6 +35,7 @@ const emptyLine = (): DeductionLine => ({
   stockCondition: "good",
   itemId: "",
   quantity: "",
+  unitPrice: "",
   charge: "",
   reason: ""
 });
@@ -44,12 +48,14 @@ function asNumber(value: number | string | null | undefined) {
 function hydrateLine(line: InitialDeductionLine, itemPriceById: Map<string, number>): DeductionLine {
   const quantity = asNumber(line.quantity);
   const amount = asNumber(line.amount);
-  const itemPrice = asNumber(line.item_default_price) || itemPriceById.get(line.item_id ?? "") || 0;
-  const charge = quantity > 0 ? Math.max(0, amount / quantity - itemPrice) : amount;
+  const unitPrice = asNumber(line.unit_price) || asNumber(line.item_default_price) || itemPriceById.get(line.item_id ?? "") || 0;
+  const storedCharge = line.charge === null || line.charge === undefined ? null : asNumber(line.charge);
+  const charge = storedCharge ?? (quantity > 0 ? Math.max(0, amount - quantity * unitPrice) : amount);
   return {
     stockCondition: line.type === "damage" ? "bad" : "good",
     itemId: line.item_id ?? "",
     quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
+    unitPrice: unitPrice ? String(Number(unitPrice.toFixed(2))) : "",
     charge: charge ? String(Number(charge.toFixed(2))) : "",
     reason: line.reason ?? ""
   };
@@ -61,13 +67,21 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
   const lineTotal = useCallback((line: DeductionLine) => {
     const quantity = Number(line.quantity || 0);
     const charge = Number(line.charge || 0);
-    const unitPrice = itemPriceById.get(line.itemId) ?? 0;
-    return quantity > 0 ? quantity * (unitPrice + charge) : charge;
-  }, [itemPriceById]);
+    const unitPrice = Number(line.unitPrice || 0);
+    return quantity > 0 ? quantity * unitPrice + charge : charge;
+  }, []);
   const total = useMemo(() => lines.reduce((sum, line) => sum + lineTotal(line), 0), [lines, lineTotal]);
 
   function updateLine(index: number, patch: Partial<DeductionLine>) {
     setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
+  }
+
+  function selectItem(index: number, itemId: string) {
+    const unitPrice = itemPriceById.get(itemId) ?? 0;
+    updateLine(index, {
+      itemId,
+      unitPrice: unitPrice ? String(unitPrice) : ""
+    });
   }
 
   function removeLine(index: number) {
@@ -102,7 +116,6 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
           </thead>
           <tbody>
             {lines.map((line, index) => {
-              const unitPrice = itemPriceById.get(line.itemId) ?? 0;
               const returnTotal = lineTotal(line);
               return (
                 <tr key={index}>
@@ -125,14 +138,14 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
                     </p>
                   </td>
                   <td>
-                    <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>
+                    <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => selectItem(index, event.target.value)}>
                       <option value="">No item</option>
                       {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
                     </select>
                   </td>
                   <td><input className="input text-right" name="deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
                   <td>
-                    <input className="input text-right" value={unitPrice ? unitPrice.toFixed(2) : ""} readOnly aria-label="Return unit price" />
+                    <input className="input text-right" name="deduction_unit_price" type="number" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: event.target.value })} aria-label="Return unit price" />
                     <input type="hidden" name="deduction_amount" value={returnTotal ? returnTotal.toFixed(2) : ""} />
                   </td>
                   <td><input className="input text-right" name="deduction_charge" type="number" step="0.01" value={line.charge} onChange={(event) => updateLine(index, { charge: event.target.value })} /></td>

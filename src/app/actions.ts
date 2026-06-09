@@ -32,7 +32,7 @@ function moneyNumber(value: string | undefined) {
 }
 
 function customerReturnAmount(itemPrice: number, quantity: number, charge: number, fallbackAmount: number) {
-  if (quantity > 0) return quantity * (itemPrice + charge);
+  if (quantity > 0) return quantity * itemPrice + charge;
   return fallbackAmount > 0 ? fallbackAmount : charge;
 }
 
@@ -800,33 +800,30 @@ export async function createInvoice(formData: FormData) {
   const deductionTypes = formData.getAll("deduction_type").map(String);
   const deductionItemIds = formData.getAll("deduction_item_id").map(String);
   const deductionQuantities = formData.getAll("deduction_quantity").map(asNumber);
+  const deductionUnitPrices = formData.getAll("deduction_unit_price").map(asNumber);
   const deductionAmounts = formData.getAll("deduction_amount").map(asNumber);
   const deductionCharges = formData.getAll("deduction_charge").map(asNumber);
   const deductionReasons = formData.getAll("deduction_reason").map(String);
-  const deductionPriceIds = Array.from(new Set(deductionItemIds.filter(Boolean)));
-  const { data: deductionItems, error: deductionItemsError } = deductionPriceIds.length
-    ? await supabase.from("items").select("id, default_price").in("id", deductionPriceIds)
-    : { data: [], error: null };
-  if (deductionItemsError) pageError("/invoices/new", `Return item prices could not be loaded: ${errorMessage(deductionItemsError)}`);
-  const deductionPriceById = new Map((deductionItems ?? []).map((item) => [String(item.id), Number(item.default_price ?? 0)]));
   const deductionDrafts = deductionTypes.map((deductionType, index) => {
     const type = deductionType === "damage" ? "damage" : "return";
     const itemId = deductionItemIds[index] || null;
     const quantity = deductionQuantities[index] || 0;
+    const unitPrice = deductionUnitPrices[index] || 0;
     const charge = deductionCharges[index] || 0;
-    const amount = customerReturnAmount(itemId ? deductionPriceById.get(itemId) ?? 0 : 0, quantity, charge, deductionAmounts[index] || 0);
+    const amount = customerReturnAmount(unitPrice, quantity, charge, deductionAmounts[index] || 0);
     return {
       type,
       item_id: itemId,
       quantity,
+      unit_price: unitPrice,
       amount,
       charge,
       reason: deductionReasons[index]?.trim() || (type === "damage" ? "Invoice damage deduction" : "Invoice return deduction")
     };
   });
 
-  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.charge < 0)) {
-    pageError("/invoices/new", "Return quantity and charge values cannot be negative.");
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.unit_price < 0 || deduction.charge < 0)) {
+    pageError("/invoices/new", "Return quantity, unit price, and charge values cannot be negative.");
   }
   const deductions = deductionDrafts
     .filter((deduction) => deduction.amount > 0)
@@ -915,12 +912,14 @@ export async function createInvoice(formData: FormData) {
           customer_id: customerId,
           item_id: deduction.item_id,
           quantity: deduction.quantity,
+          unit_price: deduction.unit_price,
+          charge: deduction.charge,
           amount: deduction.amount,
           reason: deduction.reason,
           return_date: invoiceDate,
           sort_order: deduction.sort_order
         },
-        ["sort_order"]
+        ["unit_price", "charge", "sort_order"]
       );
       if (returnError) pageError("/invoices/new", `Invoice return deduction could not be saved: ${errorMessage(returnError)}`);
       if (!returnRow) pageError("/invoices/new", "Invoice return deduction was saved without an ID.");
@@ -946,13 +945,15 @@ export async function createInvoice(formData: FormData) {
           customer_id: customerId,
           subaccount_id: subaccountId,
           quantity: deduction.quantity,
+          unit_price: deduction.unit_price,
+          return_charge: deduction.charge,
           estimated_cost: deduction.amount,
           balance_credit: deduction.amount,
           reason: `${invoiceNumber}: ${deduction.reason}`,
           damage_date: invoiceDate,
           sort_order: deduction.sort_order
         },
-        ["invoice_id", "sort_order"]
+        ["invoice_id", "unit_price", "return_charge", "sort_order"]
       );
       if (damageError) pageError("/invoices/new", `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
       if (!damageRow) pageError("/invoices/new", "Invoice damage deduction was saved without an ID.");
@@ -1064,32 +1065,29 @@ export async function updatePostedInvoice(formData: FormData) {
   const deductionTypes = formData.getAll("deduction_type").map(String);
   const deductionItemIds = formData.getAll("deduction_item_id").map(String);
   const deductionQuantities = formData.getAll("deduction_quantity").map(asNumber);
+  const deductionUnitPrices = formData.getAll("deduction_unit_price").map(asNumber);
   const deductionAmounts = formData.getAll("deduction_amount").map(asNumber);
   const deductionCharges = formData.getAll("deduction_charge").map(asNumber);
   const deductionReasons = formData.getAll("deduction_reason").map(String);
-  const deductionPriceIds = Array.from(new Set(deductionItemIds.filter(Boolean)));
-  const { data: deductionItems, error: deductionItemsError } = deductionPriceIds.length
-    ? await supabase.from("items").select("id, default_price").in("id", deductionPriceIds)
-    : { data: [], error: null };
-  if (deductionItemsError) pageError(`/invoices/${invoiceId}/edit`, `Return item prices could not be loaded: ${errorMessage(deductionItemsError)}`);
-  const deductionPriceById = new Map((deductionItems ?? []).map((item) => [String(item.id), Number(item.default_price ?? 0)]));
   const deductionDrafts = deductionTypes.map((deductionType, index) => {
     const type = deductionType === "damage" ? "damage" : "return";
     const itemId = deductionItemIds[index] || null;
     const quantity = deductionQuantities[index] || 0;
+    const unitPrice = deductionUnitPrices[index] || 0;
     const charge = deductionCharges[index] || 0;
-    const amount = customerReturnAmount(itemId ? deductionPriceById.get(itemId) ?? 0 : 0, quantity, charge, deductionAmounts[index] || 0);
+    const amount = customerReturnAmount(unitPrice, quantity, charge, deductionAmounts[index] || 0);
     return {
       type,
       item_id: itemId,
       quantity,
+      unit_price: unitPrice,
       amount,
       charge,
       reason: deductionReasons[index]?.trim() || (type === "damage" ? "Invoice damage deduction" : "Invoice return deduction")
     };
   });
-  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.charge < 0)) {
-    pageError(`/invoices/${invoiceId}/edit`, "Return quantity and charge values cannot be negative.");
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.unit_price < 0 || deduction.charge < 0)) {
+    pageError(`/invoices/${invoiceId}/edit`, "Return quantity, unit price, and charge values cannot be negative.");
   }
   const deductions = deductionDrafts
     .filter((deduction) => deduction.amount > 0)
@@ -1186,12 +1184,14 @@ export async function updatePostedInvoice(formData: FormData) {
           customer_id: customerId,
           item_id: deduction.item_id,
           quantity: deduction.quantity,
+          unit_price: deduction.unit_price,
+          charge: deduction.charge,
           amount: deduction.amount,
           reason: deduction.reason,
           return_date: invoiceDate,
           sort_order: deduction.sort_order
         },
-        ["sort_order"]
+        ["unit_price", "charge", "sort_order"]
       );
       if (returnError) pageError(`/invoices/${invoiceId}/edit`, `Invoice return deduction could not be saved: ${errorMessage(returnError)}`);
       if (!returnRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice return deduction was saved without an ID.");
@@ -1217,13 +1217,15 @@ export async function updatePostedInvoice(formData: FormData) {
           customer_id: customerId,
           subaccount_id: subaccountId,
           quantity: deduction.quantity,
+          unit_price: deduction.unit_price,
+          return_charge: deduction.charge,
           estimated_cost: deduction.amount,
           balance_credit: deduction.amount,
           reason: `${invoice.invoice_number}: ${deduction.reason}`,
           damage_date: invoiceDate,
           sort_order: deduction.sort_order
         },
-        ["invoice_id", "sort_order"]
+        ["invoice_id", "unit_price", "return_charge", "sort_order"]
       );
       if (damageError) pageError(`/invoices/${invoiceId}/edit`, `Invoice damage deduction could not be saved: ${errorMessage(damageError)}`);
       if (!damageRow) pageError(`/invoices/${invoiceId}/edit`, "Invoice damage deduction was saved without an ID.");

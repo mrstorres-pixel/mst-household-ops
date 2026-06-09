@@ -70,7 +70,7 @@ export default async function PrintInvoicePage({
         <section className="mt-6">
           <h2 className="mb-2 text-lg font-bold">Returns</h2>
           <table>
-            <thead><tr><th>Stock</th><th>Item / Description</th><th>Qty</th><th>Deduction</th></tr></thead>
+            <thead><tr><th>Stock</th><th>Item / Description</th><th>Qty</th><th>Unit Price</th><th>Charge</th><th>Deduction</th></tr></thead>
             <tbody>
               {data.deductions.map((deduction, index) => (
                 <tr key={`${deduction.type}-${deduction.item_id ?? "manual"}-${index}`}>
@@ -80,6 +80,8 @@ export default async function PrintInvoicePage({
                     {deduction.item_name && deduction.reason ? <p className="text-sm text-[color:var(--muted-foreground)]">{deduction.reason}</p> : null}
                   </td>
                   <td>{Number(deduction.quantity ?? 0) || ""}</td>
+                  <td>{Number(deduction.unit_price ?? 0) ? money(deduction.unit_price) : ""}</td>
+                  <td>{Number(deduction.charge ?? 0) ? money(deduction.charge) : ""}</td>
                   <td>-{money(deduction.amount)}</td>
                 </tr>
               ))}
