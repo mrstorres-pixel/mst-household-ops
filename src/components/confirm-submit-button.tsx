@@ -48,7 +48,7 @@ export function ConfirmSubmitButton({
                 <p id="confirm-action-message" className="mt-2 text-sm text-[color:var(--muted-foreground)]">{message}</p>
               </div>
             </div>
-            <div className="flex justify-end gap-3 p-5">
+            <div className="grid gap-3 p-5 sm:flex sm:justify-end">
               <button className="btn btn-secondary" type="button" onClick={() => setIsOpen(false)}>Cancel</button>
               <button
                 className="btn btn-danger"

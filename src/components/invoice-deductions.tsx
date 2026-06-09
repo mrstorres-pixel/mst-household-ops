@@ -86,7 +86,17 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
         </div>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="min-w-[980px]">
+          <colgroup>
+            <col className="w-36" />
+            <col className="w-[22rem]" />
+            <col className="w-28" />
+            <col className="w-32" />
+            <col className="w-32" />
+            <col className="w-36" />
+            <col />
+            <col className="w-28" />
+          </colgroup>
           <thead>
             <tr><th>Stock</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Charge</th><th>Total Return</th><th>Reason</th><th>Action</th></tr>
           </thead>
@@ -95,46 +105,47 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
               const unitPrice = itemPriceById.get(line.itemId) ?? 0;
               const returnTotal = lineTotal(line);
               return (
-              <tr key={index}>
-                <td>
-                  <input type="hidden" name="deduction_type" value={line.stockCondition === "good" ? "return" : "damage"} />
-                  <label className="flex items-center gap-2 text-sm font-semibold">
-                    <input
-                      name="deduction_good_stock"
-                      type="checkbox"
-                      value="on"
-                      checked={line.stockCondition === "good"}
-                      onChange={(event) => updateLine(index, { stockCondition: event.target.checked ? "good" : "bad" })}
-                    />
-                    {line.stockCondition === "good" ? "Good stock" : "Bad stock"}
-                  </label>
-                  <p className="mt-1">
-                    <StatusBadge tone={line.stockCondition === "good" ? "good" : "danger"}>
-                      {line.stockCondition === "good" ? "Adds to stock" : "No stock add"}
-                    </StatusBadge>
-                  </p>
-                </td>
-                <td>
-                  <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>
-                    <option value="">No item</option>
-                    {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
-                  </select>
-                </td>
-                <td><input className="input" name="deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
-                <td>
-                  <input className="input" value={unitPrice ? unitPrice.toFixed(2) : ""} readOnly aria-label="Return unit price" />
-                  <input type="hidden" name="deduction_amount" value={returnTotal ? returnTotal.toFixed(2) : ""} />
-                </td>
-                <td><input className="input" name="deduction_charge" type="number" step="0.01" value={line.charge} onChange={(event) => updateLine(index, { charge: event.target.value })} /></td>
-                <td className="font-bold">{money(returnTotal)}</td>
-                <td><input className="input" name="deduction_reason" value={line.reason} onChange={(event) => updateLine(index, { reason: event.target.value })} /></td>
-                <td>
-                  <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            );})}
+                <tr key={index}>
+                  <td>
+                    <input type="hidden" name="deduction_type" value={line.stockCondition === "good" ? "return" : "damage"} />
+                    <label className="flex items-center gap-2 text-sm font-semibold">
+                      <input
+                        name="deduction_good_stock"
+                        type="checkbox"
+                        value="on"
+                        checked={line.stockCondition === "good"}
+                        onChange={(event) => updateLine(index, { stockCondition: event.target.checked ? "good" : "bad" })}
+                      />
+                      {line.stockCondition === "good" ? "Good stock" : "Bad stock"}
+                    </label>
+                    <p className="mt-1">
+                      <StatusBadge tone={line.stockCondition === "good" ? "good" : "danger"}>
+                        {line.stockCondition === "good" ? "Adds to stock" : "No stock add"}
+                      </StatusBadge>
+                    </p>
+                  </td>
+                  <td>
+                    <select className="input" name="deduction_item_id" value={line.itemId} onChange={(event) => updateLine(index, { itemId: event.target.value })}>
+                      <option value="">No item</option>
+                      {items.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.sku ?? "no SKU"}</option>)}
+                    </select>
+                  </td>
+                  <td><input className="input text-right" name="deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
+                  <td>
+                    <input className="input text-right" value={unitPrice ? unitPrice.toFixed(2) : ""} readOnly aria-label="Return unit price" />
+                    <input type="hidden" name="deduction_amount" value={returnTotal ? returnTotal.toFixed(2) : ""} />
+                  </td>
+                  <td><input className="input text-right" name="deduction_charge" type="number" step="0.01" value={line.charge} onChange={(event) => updateLine(index, { charge: event.target.value })} /></td>
+                  <td className="text-right font-bold">{money(returnTotal)}</td>
+                  <td><input className="input" name="deduction_reason" value={line.reason} onChange={(event) => updateLine(index, { reason: event.target.value })} /></td>
+                  <td>
+                    <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             <tr>
               <td colSpan={5} className="text-right font-bold">Total Returns</td>
               <td className="font-bold">{money(total)}</td>

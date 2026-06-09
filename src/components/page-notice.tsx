@@ -9,12 +9,12 @@ export function PageNotice({ error, success }: PageNoticeProps) {
   return (
     <>
       {error ? (
-        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-800 shadow-sm">
           {error}
         </div>
       ) : null}
       {success ? (
-        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800">
+        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold leading-6 text-green-800 shadow-sm">
           {success}
         </div>
       ) : null}
