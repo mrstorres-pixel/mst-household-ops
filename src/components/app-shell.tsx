@@ -63,10 +63,10 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             {role ? <p className="mt-1 text-xs uppercase text-[#d8d5ca]">{role}</p> : null}
           </div>
           <div className="flex shrink-0 gap-2 lg:hidden">
-            <ThemeToggle compact />
+            <ThemeToggle compact className="sidebar-icon-button" />
             {userEmail ? (
               <form action={signOut}>
-                <button className="btn btn-secondary min-h-9 px-3 text-xs" type="submit">
+                <button className="sidebar-icon-button px-3 text-xs" type="submit">
                   Sign out
                 </button>
               </form>
@@ -112,19 +112,17 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
               icon={item.icon}
             />
           ))}
-          <div className="mt-3">
-            <CommandPalette />
+          <div className="sidebar-tools">
+            <CommandPalette triggerClassName="sidebar-action sidebar-action-primary" />
+            <ThemeToggle className="sidebar-action theme-toggle" />
+            {userEmail ? (
+              <form action={signOut}>
+                <button className="sidebar-action sidebar-action-muted" type="submit">
+                  Sign out
+                </button>
+              </form>
+            ) : null}
           </div>
-          <div className="mt-3">
-            <ThemeToggle />
-          </div>
-          {userEmail ? (
-            <form action={signOut} className="mt-3">
-              <button className="btn btn-secondary w-full" type="submit">
-                Sign out
-              </button>
-            </form>
-          ) : null}
         </nav>
       </aside>
       <main id="main-content" className="min-w-0 px-4 py-5 md:px-7 md:py-7">

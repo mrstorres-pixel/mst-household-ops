@@ -10,7 +10,13 @@ function currentTheme(): Theme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
-export function ThemeToggle({ compact = false }: { compact?: boolean }) {
+export function ThemeToggle({
+  compact = false,
+  className = "btn btn-secondary theme-toggle"
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   function toggleTheme() {
@@ -23,9 +29,12 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const isDark = theme === "dark";
 
   return (
-    <button className="btn btn-secondary theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}>
-      {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
-      {compact ? null : <span>{isDark ? "Light Mode" : "Dark Mode"}</span>}
+    <button className={className} type="button" onClick={toggleTheme} aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}>
+      <span className="theme-toggle-main">
+        {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+        {compact ? null : <span>Appearance</span>}
+      </span>
+      {compact ? null : <span className="theme-toggle-state">{isDark ? "Dark" : "Light"}</span>}
     </button>
   );
 }

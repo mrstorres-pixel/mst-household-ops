@@ -99,7 +99,13 @@ function sectionRows(results: SearchResults) {
   ].filter((section) => section.rows.length);
 }
 
-export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }) {
+export function CommandPalette({
+  showTrigger = true,
+  triggerClassName = "btn btn-secondary w-full"
+}: {
+  showTrigger?: boolean;
+  triggerClassName?: string;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults>(emptyResults);
@@ -153,9 +159,10 @@ export function CommandPalette({ showTrigger = true }: { showTrigger?: boolean }
   return (
     <>
       {showTrigger ? (
-        <button className="btn btn-secondary w-full" type="button" onClick={() => setIsOpen(true)}>
+        <button className={triggerClassName} type="button" onClick={() => setIsOpen(true)}>
           <Search className="h-4 w-4" aria-hidden="true" />
-          Command Search
+          <span>Command Search</span>
+          <span className="command-palette-shortcut" aria-hidden="true">Ctrl K</span>
         </button>
       ) : null}
       {isOpen ? (
