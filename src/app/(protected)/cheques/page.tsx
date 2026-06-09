@@ -3,6 +3,7 @@ import { deleteCheque, updateChequeStatus } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { listCheques } from "@/lib/data";
 import { money } from "@/lib/format";
@@ -10,13 +11,8 @@ import { money } from "@/lib/format";
 type ChequeStatus = "received" | "redeemed" | "bounced" | "cancelled";
 
 function statusBadge(status: string) {
-  const styles: Record<string, string> = {
-    received: "border-amber-200 bg-amber-50 text-amber-800",
-    redeemed: "border-green-200 bg-green-50 text-green-800",
-    bounced: "border-red-200 bg-red-50 text-red-800",
-    cancelled: "border-slate-200 bg-slate-50 text-slate-700"
-  };
-  return <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold uppercase ${styles[status] ?? styles.received}`}>{status}</span>;
+  const tone = status === "redeemed" ? "good" : status === "bounced" ? "danger" : status === "cancelled" ? "neutral" : "warning";
+  return <StatusBadge tone={tone}>{status}</StatusBadge>;
 }
 
 function StatusAction({ chequeId, status, children, className = "btn btn-secondary" }: { chequeId: string; status: ChequeStatus; children: React.ReactNode; className?: string }) {
@@ -60,7 +56,7 @@ export default async function ChequesPage({ searchParams }: { searchParams: Prom
         ))}
       </section>
 
-      <form className="mb-5 grid gap-3 rounded-lg border border-[color:var(--border)] bg-white p-4 md:grid-cols-[minmax(180px,1.2fr)_minmax(150px,0.8fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_auto]">
+      <form className="mb-5 grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1.2fr)_minmax(150px,0.8fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_auto]">
         <div className="field">
           <label>Search</label>
           <input className="input" name="q" placeholder="Customer, cheque, bank" defaultValue={params.q ?? ""} />

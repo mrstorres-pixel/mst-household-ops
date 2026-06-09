@@ -3,6 +3,7 @@ import { CustomerBulkImportForm } from "@/components/customer-bulk-import-form";
 import { CustomerCreateForm } from "@/components/customer-create-form";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
+import { StatusBadge } from "@/components/status-badge";
 import { listCustomerDirectory, type CustomerFilterStatus, type CustomerSortKey } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -49,9 +50,9 @@ function SortLink({ label, sortKey, params }: { label: string; sortKey: Customer
 }
 
 function balanceBadge(balance: number) {
-  if (balance > 0) return { label: "Receivable", className: "border-amber-200 bg-amber-50 text-amber-800" };
-  if (balance < 0) return { label: "Credit", className: "border-blue-200 bg-blue-50 text-blue-800" };
-  return { label: "Clear", className: "border-green-200 bg-green-50 text-green-800" };
+  if (balance > 0) return { label: "Receivable", tone: "warning" as const };
+  if (balance < 0) return { label: "Credit", tone: "neutral" as const };
+  return { label: "Clear", tone: "good" as const };
 }
 
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<CustomerSearchParams> }) {
@@ -108,7 +109,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                 return (
                   <tr key={customer.customer_id}>
                     <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>{customer.name}</Link></td>
-                    <td><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${badge.className}`}>{badge.label}</span></td>
+                    <td><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
                     <td>{money(balance)}</td>
                     <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>View Details</Link></td>
                   </tr>

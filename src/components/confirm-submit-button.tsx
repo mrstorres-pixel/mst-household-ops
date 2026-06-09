@@ -34,7 +34,7 @@ export function ConfirmSubmitButton({
       {isOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setIsOpen(false)}>
           <div
-            className="w-full max-w-md rounded-lg border border-red-200 bg-white shadow-2xl"
+            className="w-full max-w-md rounded-lg border border-[color:var(--danger-border)] bg-[color:var(--card)] shadow-2xl"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="confirm-action-title"
@@ -42,7 +42,7 @@ export function ConfirmSubmitButton({
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="flex gap-3 border-b border-[color:var(--border)] p-5">
-              <AlertTriangle className="mt-1 h-5 w-5 shrink-0 text-red-700" aria-hidden="true" />
+              <AlertTriangle className="mt-1 h-5 w-5 shrink-0 text-[color:var(--danger)]" aria-hidden="true" />
               <div>
                 <h3 id="confirm-action-title" className="text-xl font-bold">{title}</h3>
                 <p id="confirm-action-message" className="mt-2 text-sm text-[color:var(--muted-foreground)]">{message}</p>

@@ -16,7 +16,7 @@ export function StatCard({ title, value, detail, icon: Icon }: StatCardProps) {
           <p className="mt-2 break-words text-xl font-bold leading-tight md:text-2xl">{value}</p>
           {detail ? <p className="mt-1 text-sm text-[color:var(--muted-foreground)]">{detail}</p> : null}
         </div>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#fff7ed] text-[color:var(--accent)]">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[color:var(--accent-soft)] text-[color:var(--accent)]">
           <Icon className="h-5 w-5" aria-hidden="true" />
         </span>
       </div>

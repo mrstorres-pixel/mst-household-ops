@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { signOut } from "@/app/actions";
 import { NavLink } from "@/components/nav-link";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
@@ -45,7 +46,7 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
-      <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:font-bold focus:text-[color:var(--primary)]" href="#main-content">
+      <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-[color:var(--card)] focus:px-4 focus:py-2 focus:font-bold focus:text-[color:var(--primary)]" href="#main-content">
         Skip to content
       </a>
       <aside className="no-print sticky top-0 z-30 border-b border-[color:var(--border)] bg-[#20231f] text-white shadow-lg shadow-black/10 lg:h-screen lg:border-b-0">
@@ -56,13 +57,16 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             <p className="mt-2 max-w-[13rem] truncate text-sm text-[#d8d5ca]">{userEmail ?? "Supabase setup required"}</p>
             {role ? <p className="mt-1 text-xs uppercase text-[#d8d5ca]">{role}</p> : null}
           </div>
-          {userEmail ? (
-            <form action={signOut} className="lg:hidden">
-              <button className="btn btn-secondary min-h-9 px-3 text-xs" type="submit">
-                Sign out
-              </button>
-            </form>
-          ) : null}
+          <div className="flex shrink-0 gap-2 lg:hidden">
+            <ThemeToggle compact />
+            {userEmail ? (
+              <form action={signOut}>
+                <button className="btn btn-secondary min-h-9 px-3 text-xs" type="submit">
+                  Sign out
+                </button>
+              </form>
+            ) : null}
+          </div>
         </div>
         <div className="grid gap-3 px-3 pb-4 lg:hidden">
           <div className="grid grid-cols-3 gap-2">
@@ -103,6 +107,9 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
               icon={item.icon}
             />
           ))}
+          <div className="mt-3">
+            <ThemeToggle />
+          </div>
           {userEmail ? (
             <form action={signOut} className="mt-3">
               <button className="btn btn-secondary w-full" type="submit">
@@ -115,7 +122,7 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
       <main id="main-content" className="min-w-0 px-4 py-5 md:px-7 md:py-7">
         <div className="mx-auto w-full max-w-[1500px]">{children}</div>
       </main>
-      <nav className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 gap-1 border-t border-[color:var(--border)] bg-white/95 px-2 py-2 shadow-2xl backdrop-blur lg:hidden">
+      <nav className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 gap-1 border-t border-[color:var(--border)] bg-[color:var(--bottom-nav)] px-2 py-2 shadow-2xl backdrop-blur lg:hidden">
         {quickNav.map((item) => (
           <NavLink href={item.href} key={item.href} label={item.label} icon={item.icon} variant="bottom" />
         ))}

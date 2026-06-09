@@ -67,7 +67,7 @@ export function InventoryItemForm({ suppliers }: { suppliers: SupplierOption[] }
       {isOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setIsOpen(false)}>
           <div
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[color:var(--border)] bg-white shadow-2xl"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-item-title"
@@ -89,7 +89,7 @@ export function InventoryItemForm({ suppliers }: { suppliers: SupplierOption[] }
               <div className="field">
                 <label>SKU</label>
                 <input className="input" name="sku" value={sku} onChange={(event) => setSku(event.target.value)} />
-                {message ? <p className={`text-sm font-semibold ${message.includes("already used") ? "text-red-700" : "text-green-700"}`}>{message}</p> : null}
+                {message ? <p className={`text-sm font-semibold ${message.includes("already used") ? "text-[color:var(--danger-strong)]" : "text-[color:var(--success-strong)]"}`}>{message}</p> : null}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="field">

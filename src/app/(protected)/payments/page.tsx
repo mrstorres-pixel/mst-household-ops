@@ -54,7 +54,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         <PaymentForm customers={customers} openInvoices={openInvoices} />
 
         <div className="grid content-start gap-5">
-          <form className="grid gap-3 rounded-lg border border-[color:var(--border)] bg-white p-4 md:grid-cols-[minmax(180px,1fr)_140px_140px_140px_auto]">
+          <form className="grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1fr)_140px_140px_140px_auto]">
             <div className="field">
               <label>Search</label>
               <input className="input" name="q" defaultValue={params.q ?? ""} placeholder="Customer or reference" />

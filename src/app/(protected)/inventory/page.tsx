@@ -5,6 +5,7 @@ import { InventoryBulkImportForm } from "@/components/inventory-bulk-import-form
 import { InventoryItemForm } from "@/components/inventory-item-form";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { listArchivedItems, listCategories, listInventoryItems, listSupplierRows, listSuppliers, type InventoryFilterStatus, type InventorySortKey } from "@/lib/data";
 import { money } from "@/lib/format";
@@ -37,11 +38,11 @@ function stockStatus(item: { current_quantity?: number | string | null; reorder_
   const quantity = Number(item.current_quantity ?? 0);
   const reorder = Number(item.reorder_level ?? 0);
   const cost = Number(item.unit_cost ?? 0);
-  if (quantity <= 0) return { label: "Out", className: "border-red-200 bg-red-50 text-red-800" };
-  if (reorder > 0 && quantity <= reorder) return { label: "Low", className: "border-amber-200 bg-amber-50 text-amber-800" };
-  if (!item.sku) return { label: "No SKU", className: "border-slate-200 bg-slate-50 text-slate-700" };
-  if (cost <= 0) return { label: "No Cost", className: "border-slate-200 bg-slate-50 text-slate-700" };
-  return { label: "In Stock", className: "border-green-200 bg-green-50 text-green-800" };
+  if (quantity <= 0) return { label: "Out", tone: "danger" as const };
+  if (reorder > 0 && quantity <= reorder) return { label: "Low", tone: "warning" as const };
+  if (!item.sku) return { label: "No SKU", tone: "neutral" as const };
+  if (cost <= 0) return { label: "No Cost", tone: "neutral" as const };
+  return { label: "In Stock", tone: "good" as const };
 }
 
 function makeHref(params: InventorySearchParams, updates: Record<string, string | number | undefined>) {
@@ -150,7 +151,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     </td>
                     <td>{item.suppliers?.name ?? "-"}</td>
                     <td>{item.categories?.name ?? "-"}</td>
-                    <td><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${statusBadge.className}`}>{statusBadge.label}</span></td>
+                    <td><StatusBadge tone={statusBadge.tone}>{statusBadge.label}</StatusBadge></td>
                     <td>{item.current_quantity}</td>
                     <td>{money(item.default_price)}</td>
                     <td>{money(item.unit_cost)}</td>

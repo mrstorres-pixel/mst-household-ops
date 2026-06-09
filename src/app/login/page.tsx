@@ -11,7 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <section className="card w-full max-w-sm p-6">
         <p className="text-sm font-bold uppercase text-[color:var(--muted-foreground)]">MST Household</p>
         <h1 className="mt-2 text-3xl font-bold">Sign in</h1>
-        {params.error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{params.error}</p> : null}
+        {params.error ? <p className="notice-error mt-3 rounded-lg p-3 text-sm">{params.error}</p> : null}
         <form action={signIn} className="mt-6 grid gap-4">
           <div className="field">
             <label htmlFor="email">Email</label>

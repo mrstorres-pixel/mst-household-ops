@@ -4,6 +4,7 @@ import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, updateItem } fro
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { getInventoryItem, listSuppliers } from "@/lib/data";
 import { money } from "@/lib/format";
@@ -11,9 +12,9 @@ import { money } from "@/lib/format";
 function statusBadge(item: { current_quantity?: number | string | null; reorder_level?: number | string | null }) {
   const quantity = Number(item.current_quantity ?? 0);
   const reorder = Number(item.reorder_level ?? 0);
-  if (quantity <= 0) return { label: "Out of Stock", className: "border-red-200 bg-red-50 text-red-800" };
-  if (reorder > 0 && quantity <= reorder) return { label: "Low Stock", className: "border-amber-200 bg-amber-50 text-amber-800" };
-  return { label: "In Stock", className: "border-green-200 bg-green-50 text-green-800" };
+  if (quantity <= 0) return { label: "Out of Stock", tone: "danger" as const };
+  if (reorder > 0 && quantity <= reorder) return { label: "Low Stock", tone: "warning" as const };
+  return { label: "In Stock", tone: "good" as const };
 }
 
 export default async function InventoryItemDetailPage({
@@ -44,7 +45,7 @@ export default async function InventoryItemDetailPage({
         <div className="grid gap-5">
           <div className="card p-5">
             <div className="grid gap-4 md:grid-cols-4">
-              <p><strong>Status</strong><br /><span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-bold ${badge.className}`}>{badge.label}</span></p>
+              <p><strong>Status</strong><br /><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></p>
               <p><strong>Quantity</strong><br />{item.current_quantity}</p>
               <p><strong>Unit Cost</strong><br />{money(item.unit_cost)}</p>
               <p><strong>Stock Value</strong><br />{money(stockValue)}</p>

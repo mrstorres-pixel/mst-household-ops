@@ -46,9 +46,9 @@ export default async function CustomerDetailPage({
             <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={3} defaultValue={data.customer.notes ?? ""} /></div>
             <SubmitButton pendingText="Saving customer...">Save Customer</SubmitButton>
           </form>
-          <form action={deleteCustomer} className="card grid gap-3 border-red-200 p-5">
+          <form action={deleteCustomer} className="card grid gap-3 border-[color:var(--danger-border)] p-5">
             <input type="hidden" name="customer_id" value={id} />
-            <h3 className="text-xl font-bold text-red-700">Delete Customer</h3>
+            <h3 className="text-xl font-bold text-[color:var(--danger)]">Delete Customer</h3>
             <p className="text-sm text-[color:var(--muted-foreground)]">This hides the customer from active lists while keeping historical invoices and ledger records intact.</p>
             <ConfirmSubmitButton pendingText="Deleting..." title="Delete customer?" message="This hides the customer from active lists. Historical invoices, payments, and ledger records are kept." confirmLabel="Delete Customer">Delete Customer</ConfirmSubmitButton>
           </form>
