@@ -31,6 +31,11 @@ function moneyNumber(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function customerReturnAmount(itemPrice: number, quantity: number, charge: number, fallbackAmount: number) {
+  if (quantity > 0) return quantity * (itemPrice + charge);
+  return fallbackAmount > 0 ? fallbackAmount : charge;
+}
+
 function pageError(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
 }
@@ -776,20 +781,32 @@ export async function createInvoice(formData: FormData) {
   const deductionItemIds = formData.getAll("deduction_item_id").map(String);
   const deductionQuantities = formData.getAll("deduction_quantity").map(asNumber);
   const deductionAmounts = formData.getAll("deduction_amount").map(asNumber);
+  const deductionCharges = formData.getAll("deduction_charge").map(asNumber);
   const deductionReasons = formData.getAll("deduction_reason").map(String);
+  const deductionPriceIds = Array.from(new Set(deductionItemIds.filter(Boolean)));
+  const { data: deductionItems, error: deductionItemsError } = deductionPriceIds.length
+    ? await supabase.from("items").select("id, default_price").in("id", deductionPriceIds)
+    : { data: [], error: null };
+  if (deductionItemsError) pageError("/invoices/new", `Return item prices could not be loaded: ${errorMessage(deductionItemsError)}`);
+  const deductionPriceById = new Map((deductionItems ?? []).map((item) => [String(item.id), Number(item.default_price ?? 0)]));
   const deductionDrafts = deductionTypes.map((deductionType, index) => {
     const type = deductionType === "damage" ? "damage" : "return";
+    const itemId = deductionItemIds[index] || null;
+    const quantity = deductionQuantities[index] || 0;
+    const charge = deductionCharges[index] || 0;
+    const amount = customerReturnAmount(itemId ? deductionPriceById.get(itemId) ?? 0 : 0, quantity, charge, deductionAmounts[index] || 0);
     return {
       type,
-      item_id: deductionItemIds[index] || null,
-      quantity: deductionQuantities[index] || 0,
-      amount: deductionAmounts[index] || 0,
+      item_id: itemId,
+      quantity,
+      amount,
+      charge,
       reason: deductionReasons[index]?.trim() || (type === "damage" ? "Invoice damage deduction" : "Invoice return deduction")
     };
   });
 
-  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
-    pageError("/invoices/new", "Return and damage deduction values cannot be negative.");
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.charge < 0)) {
+    pageError("/invoices/new", "Return quantity and charge values cannot be negative.");
   }
   const deductions = deductionDrafts
     .filter((deduction) => deduction.amount > 0)
@@ -1028,19 +1045,31 @@ export async function updatePostedInvoice(formData: FormData) {
   const deductionItemIds = formData.getAll("deduction_item_id").map(String);
   const deductionQuantities = formData.getAll("deduction_quantity").map(asNumber);
   const deductionAmounts = formData.getAll("deduction_amount").map(asNumber);
+  const deductionCharges = formData.getAll("deduction_charge").map(asNumber);
   const deductionReasons = formData.getAll("deduction_reason").map(String);
+  const deductionPriceIds = Array.from(new Set(deductionItemIds.filter(Boolean)));
+  const { data: deductionItems, error: deductionItemsError } = deductionPriceIds.length
+    ? await supabase.from("items").select("id, default_price").in("id", deductionPriceIds)
+    : { data: [], error: null };
+  if (deductionItemsError) pageError(`/invoices/${invoiceId}/edit`, `Return item prices could not be loaded: ${errorMessage(deductionItemsError)}`);
+  const deductionPriceById = new Map((deductionItems ?? []).map((item) => [String(item.id), Number(item.default_price ?? 0)]));
   const deductionDrafts = deductionTypes.map((deductionType, index) => {
     const type = deductionType === "damage" ? "damage" : "return";
+    const itemId = deductionItemIds[index] || null;
+    const quantity = deductionQuantities[index] || 0;
+    const charge = deductionCharges[index] || 0;
+    const amount = customerReturnAmount(itemId ? deductionPriceById.get(itemId) ?? 0 : 0, quantity, charge, deductionAmounts[index] || 0);
     return {
       type,
-      item_id: deductionItemIds[index] || null,
-      quantity: deductionQuantities[index] || 0,
-      amount: deductionAmounts[index] || 0,
+      item_id: itemId,
+      quantity,
+      amount,
+      charge,
       reason: deductionReasons[index]?.trim() || (type === "damage" ? "Invoice damage deduction" : "Invoice return deduction")
     };
   });
-  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0)) {
-    pageError(`/invoices/${invoiceId}/edit`, "Return and damage deduction values cannot be negative.");
+  if (deductionDrafts.some((deduction) => deduction.amount < 0 || deduction.quantity < 0 || deduction.charge < 0)) {
+    pageError(`/invoices/${invoiceId}/edit`, "Return quantity and charge values cannot be negative.");
   }
   const deductions = deductionDrafts
     .filter((deduction) => deduction.amount > 0)

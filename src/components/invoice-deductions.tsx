@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { money } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 
@@ -8,19 +8,21 @@ type ItemOption = {
   id: string;
   name: string;
   sku?: string | null;
+  default_price?: number | string | null;
 };
 
 type DeductionLine = {
   stockCondition: "good" | "bad";
   itemId: string;
   quantity: string;
-  amount: string;
+  charge: string;
   reason: string;
 };
 
 type InitialDeductionLine = {
   type?: "return" | "damage" | string | null;
   item_id?: string | null;
+  item_default_price?: number | string | null;
   quantity?: number | string | null;
   amount?: number | string | null;
   reason?: string | null;
@@ -30,23 +32,39 @@ const emptyLine = (): DeductionLine => ({
   stockCondition: "good",
   itemId: "",
   quantity: "",
-  amount: "",
+  charge: "",
   reason: ""
 });
 
-function hydrateLine(line: InitialDeductionLine): DeductionLine {
+function asNumber(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function hydrateLine(line: InitialDeductionLine, itemPriceById: Map<string, number>): DeductionLine {
+  const quantity = asNumber(line.quantity);
+  const amount = asNumber(line.amount);
+  const itemPrice = asNumber(line.item_default_price) || itemPriceById.get(line.item_id ?? "") || 0;
+  const charge = quantity > 0 ? Math.max(0, amount / quantity - itemPrice) : amount;
   return {
     stockCondition: line.type === "damage" ? "bad" : "good",
     itemId: line.item_id ?? "",
     quantity: line.quantity === null || line.quantity === undefined ? "" : String(line.quantity),
-    amount: line.amount === null || line.amount === undefined ? "" : String(line.amount),
+    charge: charge ? String(Number(charge.toFixed(2))) : "",
     reason: line.reason ?? ""
   };
 }
 
 export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]; initialLines?: InitialDeductionLine[] }) {
-  const [lines, setLines] = useState<DeductionLine[]>(() => initialLines?.length ? initialLines.map(hydrateLine) : [emptyLine()]);
-  const total = useMemo(() => lines.reduce((sum, line) => sum + Number(line.amount || 0), 0), [lines]);
+  const itemPriceById = useMemo(() => new Map(items.map((item) => [item.id, asNumber(item.default_price)])), [items]);
+  const [lines, setLines] = useState<DeductionLine[]>(() => initialLines?.length ? initialLines.map((line) => hydrateLine(line, itemPriceById)) : [emptyLine()]);
+  const lineTotal = useCallback((line: DeductionLine) => {
+    const quantity = Number(line.quantity || 0);
+    const charge = Number(line.charge || 0);
+    const unitPrice = itemPriceById.get(line.itemId) ?? 0;
+    return quantity > 0 ? quantity * (unitPrice + charge) : charge;
+  }, [itemPriceById]);
+  const total = useMemo(() => lines.reduce((sum, line) => sum + lineTotal(line), 0), [lines, lineTotal]);
 
   function updateLine(index: number, patch: Partial<DeductionLine>) {
     setLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
@@ -70,10 +88,13 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Stock</th><th>Item</th><th>Qty</th><th>Deduction Amount</th><th>Reason</th><th>Action</th></tr>
+            <tr><th>Stock</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Charge</th><th>Total Return</th><th>Reason</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {lines.map((line, index) => (
+            {lines.map((line, index) => {
+              const unitPrice = itemPriceById.get(line.itemId) ?? 0;
+              const returnTotal = lineTotal(line);
+              return (
               <tr key={index}>
                 <td>
                   <input type="hidden" name="deduction_type" value={line.stockCondition === "good" ? "return" : "damage"} />
@@ -100,7 +121,12 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
                   </select>
                 </td>
                 <td><input className="input" name="deduction_quantity" type="number" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, { quantity: event.target.value })} /></td>
-                <td><input className="input" name="deduction_amount" type="number" step="0.01" value={line.amount} onChange={(event) => updateLine(index, { amount: event.target.value })} /></td>
+                <td>
+                  <input className="input" value={unitPrice ? unitPrice.toFixed(2) : ""} readOnly aria-label="Return unit price" />
+                  <input type="hidden" name="deduction_amount" value={returnTotal ? returnTotal.toFixed(2) : ""} />
+                </td>
+                <td><input className="input" name="deduction_charge" type="number" step="0.01" value={line.charge} onChange={(event) => updateLine(index, { charge: event.target.value })} /></td>
+                <td className="font-bold">{money(returnTotal)}</td>
                 <td><input className="input" name="deduction_reason" value={line.reason} onChange={(event) => updateLine(index, { reason: event.target.value })} /></td>
                 <td>
                   <button className="btn btn-danger btn-secondary" type="button" onClick={() => removeLine(index)}>
@@ -108,9 +134,9 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
                   </button>
                 </td>
               </tr>
-            ))}
+            );})}
             <tr>
-              <td colSpan={3} className="text-right font-bold">Total Deductions</td>
+              <td colSpan={5} className="text-right font-bold">Total Returns</td>
               <td className="font-bold">{money(total)}</td>
               <td colSpan={2} />
             </tr>

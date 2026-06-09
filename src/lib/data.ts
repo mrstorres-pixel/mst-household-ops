@@ -447,14 +447,14 @@ export async function getInvoice(id: string) {
     linesResult = await supabase.from("invoice_items").select("*").eq("invoice_id", id).order("id");
   }
 
-  let returnsResult = await supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("sort_order").order("created_at");
+  let returnsResult = await supabase.from("returns").select("*, items(name, sku, default_price)").eq("invoice_id", id).order("sort_order").order("created_at");
   if (returnsResult.error && isMissingColumnError(returnsResult.error)) {
-    returnsResult = await supabase.from("returns").select("*, items(name, sku)").eq("invoice_id", id).order("created_at");
+    returnsResult = await supabase.from("returns").select("*, items(name, sku, default_price)").eq("invoice_id", id).order("created_at");
   }
 
   const invoiceDamages = await supabase
     .from("damage_records")
-    .select("*, items(name, sku)")
+    .select("*, items(name, sku, default_price)")
     .eq("invoice_id", id)
     .order("sort_order")
     .order("created_at");
@@ -462,7 +462,7 @@ export async function getInvoice(id: string) {
 
   const { data: legacyDamages } = await supabase
     .from("damage_records")
-    .select("*, items(name, sku)")
+    .select("*, items(name, sku, default_price)")
     .eq("customer_id", invoice.customer_id)
     .ilike("reason", `${invoice.invoice_number}:%`)
     .order("created_at");
@@ -478,6 +478,7 @@ export async function getInvoice(id: string) {
       item_id: row.item_id,
       item_name: row.items?.name ?? null,
       item_sku: row.items?.sku ?? null,
+      item_default_price: row.items?.default_price ?? 0,
       quantity: row.quantity,
       amount: row.amount,
       reason: row.reason ?? "",
@@ -488,6 +489,7 @@ export async function getInvoice(id: string) {
       item_id: row.item_id,
       item_name: (row.items as Row | null | undefined)?.name ?? null,
       item_sku: (row.items as Row | null | undefined)?.sku ?? null,
+      item_default_price: (row.items as Row | null | undefined)?.default_price ?? 0,
       quantity: row.quantity,
       amount: row.balance_credit ?? row.estimated_cost,
       reason: String(row.reason ?? "").replace(`${invoice.invoice_number}:`, "").trim(),
