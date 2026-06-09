@@ -14,7 +14,10 @@ import {
   Users
 } from "lucide-react";
 import { signOut } from "@/app/actions";
+import { CommandPalette } from "@/components/command-palette";
 import { NavLink } from "@/components/nav-link";
+import { ResponsiveTables } from "@/components/responsive-tables";
+import { SavedFilterForms } from "@/components/saved-filter-forms";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const nav = [
@@ -108,6 +111,9 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
             />
           ))}
           <div className="mt-3">
+            <CommandPalette />
+          </div>
+          <div className="mt-3">
             <ThemeToggle />
           </div>
           {userEmail ? (
@@ -127,6 +133,8 @@ export function AppShell({ children, userEmail, role }: AppShellProps) {
           <NavLink href={item.href} key={item.href} label={item.label} icon={item.icon} variant="bottom" />
         ))}
       </nav>
+      <ResponsiveTables />
+      <SavedFilterForms />
     </div>
   );
 }

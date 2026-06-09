@@ -54,7 +54,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         <PaymentForm customers={customers} openInvoices={openInvoices} />
 
         <div className="grid content-start gap-5">
-          <form className="grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1fr)_140px_140px_140px_auto]">
+          <form data-save-filters="payments" className="grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1fr)_140px_140px_140px_auto_auto]">
             <div className="field">
               <label>Search</label>
               <input className="input" name="q" defaultValue={params.q ?? ""} placeholder="Customer or reference" />
@@ -71,6 +71,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
             <div className="field"><label>From</label><input className="input" name="date_from" type="date" defaultValue={params.date_from ?? ""} /></div>
             <div className="field"><label>To</label><input className="input" name="date_to" type="date" defaultValue={params.date_to ?? ""} /></div>
             <div className="flex items-end"><button className="btn w-full" type="submit">Filter</button></div>
+            <div className="flex items-end"><Link data-clear-saved-filter="payments" className="btn btn-secondary w-full" href="/payments">Clear</Link></div>
           </form>
 
           <section className="card table-wrap">

@@ -152,7 +152,7 @@ export default async function CustomerDetailPage({
           </form>
         </section>
         <section className="grid gap-5">
-          <form className="card grid gap-3 p-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+          <form data-save-filters="customer-detail" className="card grid gap-3 p-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
             <div className="field">
               <label>From</label>
               <input className="input" name="date_from" type="date" defaultValue={query.date_from ?? ""} />
@@ -162,7 +162,7 @@ export default async function CustomerDetailPage({
               <input className="input" name="date_to" type="date" defaultValue={query.date_to ?? ""} />
             </div>
             <button className="btn" type="submit">Apply</button>
-            <Link className="btn btn-secondary" href={`/customers/${id}`}>Clear</Link>
+            <Link data-clear-saved-filter="customer-detail" className="btn btn-secondary" href={`/customers/${id}`}>Clear</Link>
           </form>
           <div className="card table-wrap">
             <table>

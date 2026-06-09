@@ -336,6 +336,26 @@ export async function updateCustomer(formData: FormData) {
   pageSuccess(`/customers/${customerId}`, "Customer updated.");
 }
 
+export async function quickUpdateCustomer(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = text(formData, "customer_id");
+  const name = text(formData, "name");
+  if (!customerId || !name) pageError("/customers", "Customer name is required.");
+
+  const patch: Record<string, string | null> = {
+    name,
+    account_code: text(formData, "account_code") || null,
+    phone: text(formData, "phone") || null
+  };
+
+  const { error } = await supabase.from("customers").update(patch).eq("id", customerId);
+  if (error) pageError("/customers", `Customer could not be updated: ${errorMessage(error)}`);
+  await writeAudit(supabase, "update", "customer", customerId, `Quick updated customer ${name}`);
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  pageSuccess(text(formData, "return_path") || "/customers", "Customer quick edit saved.");
+}
+
 export async function addCustomerSubaccount(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = text(formData, "customer_id");

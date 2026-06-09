@@ -113,7 +113,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
       </section>
 
       <section className="mt-5 grid gap-5 xl:grid-cols-2">
-        <form className="card grid gap-3 p-4 xl:col-span-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto] md:items-end">
+        <form data-save-filters="suppliers" className="card grid gap-3 p-4 xl:col-span-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto] md:items-end">
           <div className="field">
             <label>Supplier</label>
             <select className="input" name="supplier_id" defaultValue={params.supplier_id ?? ""}>
@@ -130,7 +130,7 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <input className="input" name="date_to" type="date" defaultValue={params.date_to ?? ""} />
           </div>
           <button className="btn" type="submit">Apply</button>
-          <Link className="btn btn-secondary" href="/suppliers">Clear</Link>
+          <Link data-clear-saved-filter="suppliers" className="btn btn-secondary" href="/suppliers">Clear</Link>
         </form>
         <section className="card table-wrap">
           <div className="border-b border-[color:var(--border)] p-4">

@@ -488,6 +488,59 @@ td textarea {
   details .min-w-72 {
     min-width: min(18rem, calc(100vw - 3rem));
   }
+
+  .table-wrap table[data-mobile="cards"] {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0 0.75rem;
+  }
+
+  .table-wrap table[data-mobile="cards"] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table-wrap table[data-mobile="cards"] tbody,
+  .table-wrap table[data-mobile="cards"] tr,
+  .table-wrap table[data-mobile="cards"] td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-wrap table[data-mobile="cards"] tbody {
+    padding: 0 1rem;
+  }
+
+  .table-wrap table[data-mobile="cards"] tr {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: 0 1px 2px rgb(32 35 31 / 0.06);
+  }
+
+  .table-wrap table[data-mobile="cards"] td {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.36fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem;
+  }
+
+  .table-wrap table[data-mobile="cards"] td:last-child {
+    border-bottom: 0;
+  }
+
+  .table-wrap table[data-mobile="cards"] td::before {
+    content: attr(data-label);
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

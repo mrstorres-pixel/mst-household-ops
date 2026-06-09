@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, Banknote, Boxes, HandCoins, Landmark, ReceiptText, TrendingUp } from "lucide-react";
+import { DashboardWidgetControls } from "@/components/dashboard-widget-controls";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -16,6 +17,13 @@ export default async function DashboardPage() {
   const [totals, operations] = await Promise.all([dashboardTotals(), dashboardOperations()]);
   const cashFlow = totals.todayCash - totals.todayExpenses;
   const alertCount = operations.lowStock.length + operations.bouncedCheques.length;
+  const dashboardWidgets = [
+    { id: "scorecards", title: "Top Metrics" },
+    { id: "attention", title: "Needs Attention" },
+    { id: "open-invoices", title: "Open Customer Invoices" },
+    { id: "supplier-bills", title: "Recent Supplier Bills" },
+    { id: "fast-actions", title: "Fast Actions" }
+  ];
 
   return (
     <>
@@ -23,16 +31,17 @@ export default async function DashboardPage() {
         title="Dashboard"
         description="Daily operating view for balances, stock value, cash flow, and supplier exposure."
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title="Customer Balance" value={money(totals.customerBalance)} detail="Total receivables" icon={HandCoins} />
-        <StatCard title="Supplier Balance" value={money(totals.supplierBalance)} detail="Outstanding payables" icon={Landmark} />
-        <StatCard title="Stock Value" value={money(totals.stockValue)} detail="Qty x unit cost" icon={Boxes} />
-        <StatCard title="Today Cash Sales" value={money(totals.todayCash)} detail="Physical store cash" icon={Banknote} />
-        <StatCard title="Cash Flow" value={money(cashFlow)} detail="Cash sales minus expenses" icon={TrendingUp} />
-      </div>
+      <DashboardWidgetControls initialWidgets={dashboardWidgets} />
+      <section className="grid gap-5 xl:grid-cols-2">
+        <div data-dashboard-widget="scorecards" data-dashboard-title="Top Metrics" className="grid gap-4 md:grid-cols-2 xl:col-span-2 xl:grid-cols-5">
+          <StatCard title="Customer Balance" value={money(totals.customerBalance)} detail="Total receivables" icon={HandCoins} />
+          <StatCard title="Supplier Balance" value={money(totals.supplierBalance)} detail="Outstanding payables" icon={Landmark} />
+          <StatCard title="Stock Value" value={money(totals.stockValue)} detail="Qty x unit cost" icon={Boxes} />
+          <StatCard title="Today Cash Sales" value={money(totals.todayCash)} detail="Physical store cash" icon={Banknote} />
+          <StatCard title="Cash Flow" value={money(cashFlow)} detail="Cash sales minus expenses" icon={TrendingUp} />
+        </div>
 
-      <section className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-        <div className="card table-wrap">
+        <div data-dashboard-widget="attention" data-dashboard-title="Needs Attention" className="card table-wrap">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border)] p-4">
             <div>
               <h3 className="text-xl font-bold">Needs Attention</h3>
@@ -64,8 +73,7 @@ export default async function DashboardPage() {
           </table>
         </div>
 
-        <div className="grid content-start gap-5">
-          <div className="card table-wrap">
+        <div data-dashboard-widget="open-invoices" data-dashboard-title="Open Customer Invoices" className="card table-wrap">
             <div className="border-b border-[color:var(--border)] p-4">
               <h3 className="font-bold">Open Customer Invoices</h3>
             </div>
@@ -82,8 +90,8 @@ export default async function DashboardPage() {
                 {!operations.openInvoices.length ? <tr><td colSpan={3}>No open invoices found.</td></tr> : null}
               </tbody>
             </table>
-          </div>
-          <div className="card table-wrap">
+        </div>
+        <div data-dashboard-widget="supplier-bills" data-dashboard-title="Recent Supplier Bills" className="card table-wrap">
             <div className="border-b border-[color:var(--border)] p-4">
               <h3 className="font-bold">Recent Supplier Bills</h3>
             </div>
@@ -100,11 +108,9 @@ export default async function DashboardPage() {
                 {!operations.recentSupplierInvoices.length ? <tr><td colSpan={3}>No supplier bills found.</td></tr> : null}
               </tbody>
             </table>
-          </div>
         </div>
-      </section>
 
-      <section className="mt-6 card p-5">
+        <section data-dashboard-widget="fast-actions" data-dashboard-title="Fast Actions" className="card p-5 xl:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold">Fast Actions</h3>
@@ -118,6 +124,7 @@ export default async function DashboardPage() {
           <Link className="btn btn-secondary" href="/suppliers">Post Supplier Bill</Link>
           <Link className="btn btn-secondary" href="/reports/suppliers/cutoff">Supplier Cutoff</Link>
         </div>
+      </section>
       </section>
     </>
   );

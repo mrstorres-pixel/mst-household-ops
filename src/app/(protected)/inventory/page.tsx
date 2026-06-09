@@ -101,7 +101,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       <PageHeader title="Inventory" description={`Showing ${start}-${end} of ${inventory.total} items. Page stock value: ${money(totalValue)}`} />
       <PageNotice error={params.error} success={params.success} />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <form className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(150px,1fr)_110px_auto]">
+        <form data-save-filters="inventory" className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(150px,1fr)_110px_auto_auto]">
           <input className="input" name="q" placeholder="Search item or SKU" defaultValue={params.q ?? ""} />
           <select className="input" name="category" defaultValue={params.category ?? ""}>
             <option value="">All categories</option>
@@ -118,6 +118,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             {[25, 50, 100].map((size) => <option key={size} value={size}>{size}/page</option>)}
           </select>
           <button className="btn" type="submit">Filter</button>
+          <Link data-clear-saved-filter="inventory" className="btn btn-secondary" href="/inventory">Clear</Link>
         </form>
         <div className="flex gap-2">
           <InventoryBulkImportForm />

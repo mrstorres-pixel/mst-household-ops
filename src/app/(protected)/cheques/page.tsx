@@ -56,7 +56,7 @@ export default async function ChequesPage({ searchParams }: { searchParams: Prom
         ))}
       </section>
 
-      <form className="mb-5 grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1.2fr)_minmax(150px,0.8fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_auto]">
+      <form data-save-filters="cheques" className="mb-5 grid gap-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] p-4 md:grid-cols-[minmax(180px,1.2fr)_minmax(150px,0.8fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_auto_auto]">
         <div className="field">
           <label>Search</label>
           <input className="input" name="q" placeholder="Customer, cheque, bank" defaultValue={params.q ?? ""} />
@@ -81,6 +81,9 @@ export default async function ChequesPage({ searchParams }: { searchParams: Prom
         </div>
         <div className="flex items-end">
           <button className="btn w-full" type="submit">Filter</button>
+        </div>
+        <div className="flex items-end">
+          <Link data-clear-saved-filter="cheques" className="btn btn-secondary w-full" href="/cheques">Clear</Link>
         </div>
       </form>
 

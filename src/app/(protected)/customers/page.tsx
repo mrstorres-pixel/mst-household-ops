@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { quickUpdateCustomer } from "@/app/actions";
 import { CustomerBulkImportForm } from "@/components/customer-bulk-import-form";
 import { CustomerCreateForm } from "@/components/customer-create-form";
 import { PageHeader } from "@/components/page-header";
@@ -76,7 +77,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       <PageHeader title="Customers" description={`Showing ${start}-${end} of ${directory.total} customers. Page balance: ${money(pageBalance)}`} />
       <PageNotice error={params.error} success={params.success} />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <form className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_110px_auto]">
+        <form data-save-filters="customers" className="grid flex-1 gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_110px_auto_auto]">
           <input className="input" name="q" placeholder="Search customer name" defaultValue={params.q ?? ""} />
           <select className="input" name="status" defaultValue={params.status ?? "all"}>
             {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -85,6 +86,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
             {[25, 50, 100].map((size) => <option key={size} value={size}>{size}/page</option>)}
           </select>
           <button className="btn" type="submit">Filter</button>
+          <Link data-clear-saved-filter="customers" className="btn btn-secondary" href="/customers">Clear</Link>
         </form>
         <div className="flex gap-2">
           <CustomerBulkImportForm />
@@ -111,7 +113,22 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                     <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>{customer.name}</Link></td>
                     <td><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
                     <td>{money(balance)}</td>
-                    <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>View Details</Link></td>
+                    <td>
+                      <div className="flex flex-wrap gap-2">
+                        <Link className="font-bold text-[color:var(--primary)]" href={`/customers/${customer.customer_id}`}>View Details</Link>
+                        <details>
+                          <summary className="cursor-pointer font-bold text-[color:var(--primary)]">Quick Edit</summary>
+                          <form action={quickUpdateCustomer} className="mt-3 grid min-w-72 gap-2">
+                            <input type="hidden" name="customer_id" value={customer.customer_id} />
+                            <input type="hidden" name="return_path" value={makeHref(params, {})} />
+                            <input className="input" name="name" defaultValue={customer.name} />
+                            <input className="input" name="account_code" placeholder="Account code" defaultValue={customer.account_code ?? ""} />
+                            <input className="input" name="phone" placeholder="Phone" defaultValue={customer.phone ?? ""} />
+                            <button className="btn btn-secondary" type="submit">Save Quick Edit</button>
+                          </form>
+                        </details>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
