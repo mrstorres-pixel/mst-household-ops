@@ -44,6 +44,10 @@ function pageSuccess(path: string, message: string): never {
   redirect(`${path}?success=${encodeURIComponent(message)}`);
 }
 
+function internalReturnPath(value: string, fallback: string) {
+  return value.startsWith("/") && !value.startsWith("//") ? value : fallback;
+}
+
 async function requireSupabase() {
   if (!hasSupabaseEnv()) throw new Error("Supabase is not configured.");
   return createClient();
@@ -169,6 +173,50 @@ async function insertInventoryMovementsChecked(
   );
   const { error } = await supabase.from("inventory_movements").insert(rows);
   if (error) pageError(errorPath, `${message}: ${errorMessage(error)}`);
+}
+
+type InvoiceLineDraft = {
+  item_id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
+};
+
+function parseInvoiceLines(formData: FormData, errorPath: string, emptyMessage: string, priceMessage: string): InvoiceLineDraft[] {
+  const itemIds = formData.getAll("item_id").map(String);
+  const descriptions = formData.getAll("description").map(String);
+  const quantityValues = formData.getAll("quantity");
+  const priceValues = formData.getAll("unit_price");
+  const maxRows = Math.max(itemIds.length, descriptions.length, quantityValues.length, priceValues.length);
+  const lines: Omit<InvoiceLineDraft, "sort_order">[] = [];
+
+  for (let index = 0; index < maxRows; index += 1) {
+    const itemId = itemIds[index] ?? "";
+    const description = descriptions[index] || "Item";
+    const quantityRaw = String(quantityValues[index] ?? "").trim();
+    const priceRaw = String(priceValues[index] ?? "").trim();
+    const quantity = asNumber(quantityValues[index]);
+    const unitPrice = asNumber(priceValues[index]);
+    const hasAnyInput = Boolean(itemId || descriptions[index]?.trim() || quantityRaw || priceRaw);
+
+    if (!hasAnyInput) continue;
+    if (!itemId) pageError(errorPath, `Invoice item row ${index + 1} has details but no selected inventory item.`);
+    if (quantity <= 0) pageError(errorPath, `Invoice item row ${index + 1} needs a quantity greater than zero.`);
+    if (unitPrice < 0) pageError(errorPath, priceMessage);
+
+    lines.push({
+      item_id: itemId,
+      description,
+      quantity,
+      unit_price: unitPrice,
+      line_total: quantity * unitPrice
+    });
+  }
+
+  if (!lines.length) pageError(errorPath, emptyMessage);
+  return lines.map((line, sortOrder) => ({ ...line, sort_order: sortOrder }));
 }
 
 async function uploadOptionalFile(
@@ -776,23 +824,12 @@ export async function createInvoice(formData: FormData) {
   const subaccountId = text(formData, "subaccount_id") || null;
   if (!customerId) pageError("/invoices/new", "Select a customer before posting an invoice.");
 
-  const itemIds = formData.getAll("item_id").map(String);
-  const descriptions = formData.getAll("description").map(String);
-  const quantities = formData.getAll("quantity").map(asNumber);
-  const prices = formData.getAll("unit_price").map(asNumber);
-  const lines = itemIds
-    .map((itemId, index) => ({
-      item_id: itemId,
-      description: descriptions[index] || "Item",
-      quantity: quantities[index],
-      unit_price: prices[index],
-      line_total: quantities[index] * prices[index]
-    }))
-    .filter((line) => line.item_id && line.quantity > 0)
-    .map((line, sortOrder) => ({ ...line, sort_order: sortOrder }));
-
-  if (!lines.length) pageError("/invoices/new", "Add at least one invoice item with quantity greater than zero.");
-  if (lines.some((line) => line.unit_price < 0)) pageError("/invoices/new", "Unit price cannot be negative.");
+  const lines = parseInvoiceLines(
+    formData,
+    "/invoices/new",
+    "Add at least one invoice item with quantity greater than zero.",
+    "Unit price cannot be negative."
+  );
 
   const subtotal = lines.reduce((total, line) => total + line.line_total, 0);
   if (subtotal <= 0) pageError("/invoices/new", "Invoice total must be greater than zero.");
@@ -894,7 +931,8 @@ export async function createInvoice(formData: FormData) {
       quantity_delta: -line.quantity,
       reference_type: "invoice",
       reference_id: invoice.id,
-      notes: invoiceNumber
+      notes: invoiceNumber,
+      movement_date: invoiceDate
     }));
   const returnMovementRows = deductions
     .filter((deduction) => deduction.type === "return" && deduction.item_id && deduction.quantity > 0)
@@ -1044,23 +1082,12 @@ export async function updatePostedInvoice(formData: FormData) {
     }
   }
 
-  const itemIds = formData.getAll("item_id").map(String);
-  const descriptions = formData.getAll("description").map(String);
-  const quantities = formData.getAll("quantity").map(asNumber);
-  const prices = formData.getAll("unit_price").map(asNumber);
-  const lines = itemIds
-    .map((itemId, index) => ({
-      item_id: itemId,
-      description: descriptions[index] || "Item",
-      quantity: quantities[index],
-      unit_price: prices[index],
-      line_total: quantities[index] * prices[index]
-    }))
-    .filter((line) => line.item_id && line.quantity > 0)
-    .map((line, sortOrder) => ({ ...line, sort_order: sortOrder }));
-
-  if (!lines.length) pageError(`/invoices/${invoiceId}/edit`, "Add at least one invoice item with quantity greater than zero.");
-  if (lines.some((line) => line.unit_price < 0)) pageError(`/invoices/${invoiceId}/edit`, "Invoice prices cannot be negative.");
+  const lines = parseInvoiceLines(
+    formData,
+    `/invoices/${invoiceId}/edit`,
+    "Add at least one invoice item with quantity greater than zero.",
+    "Invoice prices cannot be negative."
+  );
 
   const deductionTypes = formData.getAll("deduction_type").map(String);
   const deductionItemIds = formData.getAll("deduction_item_id").map(String);
@@ -1262,6 +1289,71 @@ export async function updatePostedInvoice(formData: FormData) {
   revalidatePath("/inventory");
   revalidatePath("/reports/daily");
   pageSuccess(`/invoices/${invoiceId}/edit`, customerChanged ? "Invoice transferred and updated." : "Invoice updated with items, deductions, and inventory corrections.");
+}
+
+export async function repairInvoiceInventoryMovements(formData: FormData) {
+  const supabase = await requireSupabase();
+  const invoiceId = text(formData, "invoice_id");
+  const returnPath = internalReturnPath(text(formData, "return_path"), invoiceId ? `/invoices/${invoiceId}/edit` : "/inventory");
+  if (!invoiceId) pageError(returnPath, "Select an invoice before repairing stock movements.");
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, invoice_date")
+    .eq("id", invoiceId)
+    .single();
+  if (invoiceError || !invoice) pageError(returnPath, `Invoice could not be loaded: ${errorMessage(invoiceError)}`);
+
+  const { data: invoiceItems, error: lineError } = await supabase
+    .from("invoice_items")
+    .select("item_id, quantity")
+    .eq("invoice_id", invoiceId);
+  if (lineError) pageError(returnPath, `Invoice items could not be loaded: ${errorMessage(lineError)}`);
+
+  const { data: saleMovements, error: movementError } = await supabase
+    .from("inventory_movements")
+    .select("item_id, quantity_delta")
+    .eq("reference_id", invoiceId)
+    .eq("movement_type", "sale");
+  if (movementError) pageError(returnPath, `Existing stock movements could not be loaded: ${errorMessage(movementError)}`);
+
+  const expectedByItem = new Map<string, number>();
+  for (const line of invoiceItems ?? []) {
+    const itemId = String(line.item_id ?? "");
+    if (!itemId) continue;
+    expectedByItem.set(itemId, (expectedByItem.get(itemId) ?? 0) + Number(line.quantity ?? 0));
+  }
+
+  const deductedByItem = new Map<string, number>();
+  for (const movement of saleMovements ?? []) {
+    const itemId = String(movement.item_id ?? "");
+    if (!itemId) continue;
+    const deducted = Math.max(0, -Number(movement.quantity_delta ?? 0));
+    deductedByItem.set(itemId, (deductedByItem.get(itemId) ?? 0) + deducted);
+  }
+
+  const missingRows = Array.from(expectedByItem.entries())
+    .map(([itemId, expectedQuantity]) => ({
+      item_id: itemId,
+      movement_type: "sale",
+      quantity_delta: -(expectedQuantity - (deductedByItem.get(itemId) ?? 0)),
+      reference_type: "invoice",
+      reference_id: invoiceId,
+      notes: invoice.invoice_number,
+      movement_date: invoice.invoice_date
+    }))
+    .filter((row) => Number(row.quantity_delta) < 0);
+
+  if (!missingRows.length) pageSuccess(returnPath, `Invoice ${invoice.invoice_number} already has matching sale stock movements.`);
+
+  await insertInventoryMovementsChecked(supabase, missingRows, returnPath, "Missing invoice inventory movement could not be repaired");
+  await writeAudit(supabase, "repair_stock_movements", "invoice", invoiceId, `Repaired missing stock movements for ${invoice.invoice_number}`, {
+    movement_count: missingRows.length
+  });
+  revalidatePath("/inventory");
+  revalidatePath(`/invoices/${invoiceId}/edit`);
+  revalidatePath(`/invoices/${invoiceId}/print`);
+  pageSuccess(returnPath, `Repaired missing stock movement for invoice ${invoice.invoice_number}.`);
 }
 
 export async function deleteCustomerInvoice(formData: FormData) {

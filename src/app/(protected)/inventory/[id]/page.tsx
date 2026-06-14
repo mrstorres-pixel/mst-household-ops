@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, updateItem } from "@/app/actions";
+import { adjustItemQuantity, deleteItem, permanentlyDeleteItem, repairInvoiceInventoryMovements, updateItem } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
@@ -32,6 +32,23 @@ export default async function InventoryItemDetailPage({
   const badge = statusBadge(item);
   const stockValue = Number(item.current_quantity ?? 0) * Number(item.unit_cost ?? 0);
   const hasVisibleHistory = Boolean(data.movements.length || data.invoiceItems.length || data.purchases.length || data.damages.length);
+  const invoiceQuantityByItem = new Map<string, number>();
+  for (const line of data.invoiceItems) {
+    const key = `${line.invoice_id}:${line.item_id}`;
+    invoiceQuantityByItem.set(key, (invoiceQuantityByItem.get(key) ?? 0) + Number(line.quantity ?? 0));
+  }
+  const saleMovementQuantityByItem = new Map<string, number>();
+  for (const movement of data.movements) {
+    if (movement.movement_type !== "sale" || !movement.reference_id) continue;
+    const key = `${movement.reference_id}:${movement.item_id}`;
+    const deducted = Math.max(0, -Number(movement.quantity_delta ?? 0));
+    saleMovementQuantityByItem.set(key, (saleMovementQuantityByItem.get(key) ?? 0) + deducted);
+  }
+  const missingSaleMovementKeys = new Set(
+    Array.from(invoiceQuantityByItem.entries())
+      .filter(([key, expectedQuantity]) => (saleMovementQuantityByItem.get(key) ?? 0) < expectedQuantity)
+      .map(([key]) => key)
+  );
 
   return (
     <>
@@ -77,19 +94,34 @@ export default async function InventoryItemDetailPage({
 
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+              <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Stock Movement</th></tr></thead>
               <tbody>
-                {data.invoiceItems.map((line) => (
-                  <tr key={line.id}>
-                    <td>{line.invoices?.invoice_date}</td>
-                    <td>{line.invoices?.invoice_number}</td>
-                    <td>{line.invoices?.customers?.name}</td>
-                    <td>{line.quantity}</td>
-                    <td>{money(line.unit_price)}</td>
-                    <td>{money(line.line_total)}</td>
-                  </tr>
-                ))}
-                {!data.invoiceItems.length ? <tr><td colSpan={6}>No customer invoice usage yet.</td></tr> : null}
+                {data.invoiceItems.map((line) => {
+                  const missingSaleMovement = missingSaleMovementKeys.has(`${line.invoice_id}:${line.item_id}`);
+                  return (
+                    <tr key={line.id}>
+                      <td>{line.invoices?.invoice_date}</td>
+                      <td><Link className="font-bold text-[color:var(--primary)]" href={`/invoices/${line.invoice_id}/print`}>{line.invoices?.invoice_number}</Link></td>
+                      <td>{line.invoices?.customers?.name}</td>
+                      <td>{line.quantity}</td>
+                      <td>{money(line.unit_price)}</td>
+                      <td>{money(line.line_total)}</td>
+                      <td>
+                        {missingSaleMovement ? (
+                          <form action={repairInvoiceInventoryMovements} className="flex flex-wrap items-center gap-2">
+                            <input type="hidden" name="invoice_id" value={line.invoice_id} />
+                            <input type="hidden" name="return_path" value={`/inventory/${item.id}`} />
+                            <StatusBadge tone="danger">Missing</StatusBadge>
+                            <SubmitButton className="btn btn-secondary" pendingText="Repairing...">Repair</SubmitButton>
+                          </form>
+                        ) : (
+                          <StatusBadge tone="good">Recorded</StatusBadge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!data.invoiceItems.length ? <tr><td colSpan={7}>No customer invoice usage yet.</td></tr> : null}
               </tbody>
             </table>
           </div>
