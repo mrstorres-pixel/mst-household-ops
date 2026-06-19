@@ -832,6 +832,17 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
       .map((override) => String(override.source_key))
   );
   const hiddenRows = overrideRows.filter((override) => override.action === "hide");
+  const isUnlinkedAdjustment = (adjustment: Row) => !adjustment.purchase_order_id || !invoiceRows.some((invoice) => String(invoice.id) === String(adjustment.purchase_order_id));
+  const unlinkedAdjustmentRows = adjustmentRows.filter(isUnlinkedAdjustment);
+  const excludedAdjustmentRows = unlinkedAdjustmentRows
+    .filter((adjustment) => adjustment.adjustment_type === "credit")
+    .map((adjustment) => ({
+      id: String(adjustment.id),
+      date: adjustment.adjustment_date,
+      type: adjustment.adjustment_type,
+      reference: adjustment.reason || "Supplier credit / opening balance",
+      amount: Number(adjustment.amount ?? 0)
+    }));
   const paymentRows = (payments.data ?? [])
     .map((payment) => ({
       ...payment,
@@ -891,9 +902,8 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     };
   }).filter((row) => !hiddenCounterKeys.has(row.source_key));
 
-  const linkedAdjustmentIds = new Set(invoiceRows.map((invoice) => String(invoice.id)));
-  const unlinkedAdjustments = adjustmentRows.filter((adjustment) => !adjustment.purchase_order_id || !linkedAdjustmentIds.has(String(adjustment.purchase_order_id)));
-  for (const adjustment of unlinkedAdjustments) {
+  const unlinkedCutoffAdjustments = unlinkedAdjustmentRows.filter((adjustment) => adjustment.adjustment_type !== "credit");
+  for (const adjustment of unlinkedCutoffAdjustments) {
     const amount = Number(adjustment.amount ?? 0);
     const sourceKey = `adjustment:${adjustment.id}`;
     if (hiddenCounterKeys.has(sourceKey)) continue;
@@ -949,6 +959,7 @@ export async function getSupplierCutoffReport(supplierId: string, startDate: str
     counterRows,
     paymentRows,
     hiddenRows,
+    excludedAdjustmentRows,
     deliveredTotal,
     returnTotal,
     invoiceTotal,
