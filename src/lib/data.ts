@@ -401,6 +401,20 @@ export async function listSupplierAdjustments(options: SupplierActivityOptions =
   return data ?? [];
 }
 
+export async function listSupplierPayments(options: SupplierActivityOptions = {}) {
+  noStore();
+  if (!hasSupabaseEnv()) return [];
+  const supabase = await createClient();
+  let query = supabase
+    .from("supplier_payments")
+    .select("*, suppliers(name), purchase_orders(id, supplier_invoice_number, order_date)");
+  if (options.supplierId) query = query.eq("supplier_id", options.supplierId);
+  if (options.dateFrom) query = query.gte("payment_date", options.dateFrom);
+  if (options.dateTo) query = query.lte("payment_date", options.dateTo);
+  const { data } = await query.order("payment_date", { ascending: false }).order("created_at", { ascending: false }).limit(200);
+  return data ?? [];
+}
+
 export async function listSupplierInvoices(options: SupplierActivityOptions = {}) {
   noStore();
   if (!hasSupabaseEnv()) return [];

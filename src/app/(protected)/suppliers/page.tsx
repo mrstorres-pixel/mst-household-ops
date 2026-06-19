@@ -7,29 +7,31 @@ import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { SupplierInvoiceDeductions } from "@/components/supplier-invoice-deductions";
 import { SupplierInvoiceLines } from "@/components/supplier-invoice-lines";
-import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierRows, listSuppliers } from "@/lib/data";
+import { listItems, listSupplierAdjustments, listSupplierInvoices, listSupplierPayments, listSupplierRows, listSuppliers } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
 export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string; supplier_id?: string; date_from?: string; date_to?: string }> }) {
   const params = await searchParams;
   const activityFilters = { supplierId: params.supplier_id, dateFrom: params.date_from, dateTo: params.date_to };
-  const [suppliers, supplierRows, items, adjustments, supplierInvoices] = await Promise.all([
+  const [suppliers, supplierRows, items, adjustments, supplierInvoices, supplierPayments] = await Promise.all([
     listSuppliers(),
     listSupplierRows(),
     listItems(),
     listSupplierAdjustments(activityFilters),
-    listSupplierInvoices(activityFilters)
+    listSupplierInvoices(activityFilters),
+    listSupplierPayments(activityFilters)
   ]);
   const supplierBalanceTotal = suppliers.reduce((sum, supplier) => sum + Number(supplier.balance ?? 0), 0);
   const recentInvoiceTotal = supplierInvoices.reduce((sum, invoice) => sum + Number(invoice.total ?? 0), 0);
   const recentAdjustmentTotal = adjustments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const recentPaymentTotal = supplierPayments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
 
   return (
     <>
       <PageHeader title="Suppliers" description="Supplier invoices, payable balances, payments, and after-invoice adjustments." />
       <PageNotice error={params.error} success={params.success} />
 
-      <section className="mb-5 grid gap-3 md:grid-cols-3">
+      <section className="mb-5 grid gap-3 md:grid-cols-4">
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Active Suppliers</p>
           <p className="mt-2 text-2xl font-bold">{suppliers.length}</p>
@@ -41,6 +43,10 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Recent Credits / Deductions</p>
           <p className="mt-2 text-2xl font-bold">{money(recentAdjustmentTotal)}</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Recent Payments</p>
+          <p className="mt-2 text-2xl font-bold">{money(recentPaymentTotal)}</p>
         </div>
       </section>
 
@@ -175,6 +181,31 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             </tbody>
           </table>
         </section>
+
+        <section className="card table-wrap">
+          <div className="border-b border-[color:var(--border)] p-4">
+            <h3 className="font-bold">Supplier Payment History</h3>
+          </div>
+          <table>
+            <thead><tr><th>Date</th><th>Supplier</th><th>Reference</th><th>Invoice / DR</th><th>Amount</th><th>Notes</th></tr></thead>
+            <tbody>
+              {supplierPayments.map((payment) => {
+                const invoiceLabel = payment.purchase_orders?.supplier_invoice_number ?? (payment.purchase_orders?.id ? String(payment.purchase_orders.id).slice(0, 8) : "Total balance");
+                return (
+                  <tr key={payment.id}>
+                    <td>{payment.payment_date}</td>
+                    <td>{payment.suppliers?.name}</td>
+                    <td>{payment.reference ?? "-"}</td>
+                    <td>{invoiceLabel}</td>
+                    <td className="font-bold">{money(payment.amount)}</td>
+                    <td>{payment.notes ?? "-"}</td>
+                  </tr>
+                );
+              })}
+              {!supplierPayments.length ? <tr><td colSpan={6}>No supplier payments found for this filter.</td></tr> : null}
+            </tbody>
+          </table>
+        </section>
       </section>
 
       <section className="mt-5 card p-5">
@@ -188,7 +219,9 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
             <form action={recordSupplierPayment} className="mt-4 grid gap-3">
               <div className="field"><label>Supplier</label><select className="input" name="supplier_id">{suppliers.map((supplier) => <option key={supplier.supplier_id} value={supplier.supplier_id}>{supplier.name}</option>)}</select></div>
               <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" /></div>
+              <div className="field"><label>Date</label><input className="input" name="payment_date" type="date" defaultValue={todayISO()} /></div>
               <div className="field"><label>Reference</label><input className="input" name="reference" /></div>
+              <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} /></div>
               <SubmitButton pendingText="Recording payment...">Record Payment</SubmitButton>
             </form>
           </details>

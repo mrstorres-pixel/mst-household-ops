@@ -2187,6 +2187,7 @@ export async function recordSupplierPayment(formData: FormData) {
   const supplierId = text(formData, "supplier_id");
   const purchaseOrderId = text(formData, "purchase_order_id") || null;
   const amount = asNumber(formData.get("amount"));
+  const paymentDate = text(formData, "payment_date") || todayISO();
   const redirectPath = purchaseOrderId ? `/suppliers/invoices/${purchaseOrderId}` : "/suppliers";
   if (!supplierId) pageError(redirectPath, "Select a supplier before recording a supplier payment.");
   if (amount <= 0) pageError(redirectPath, "Supplier payment amount must be greater than zero.");
@@ -2195,11 +2196,12 @@ export async function recordSupplierPayment(formData: FormData) {
     supplier_id: supplierId,
     purchase_order_id: purchaseOrderId,
     amount,
+    payment_date: paymentDate,
     reference: text(formData, "reference") || null,
     notes: text(formData, "notes") || null
   }).select("id").single();
   if (error) pageError(redirectPath, `Supplier payment could not be saved: ${errorMessage(error)}`);
-  await writeAudit(supabase, "create", "supplier_payment", payment?.id ?? null, "Recorded supplier payment", { amount, purchase_order_id: purchaseOrderId });
+  await writeAudit(supabase, "create", "supplier_payment", payment?.id ?? null, "Recorded supplier payment", { amount, payment_date: paymentDate, purchase_order_id: purchaseOrderId });
   revalidatePath("/suppliers");
   if (purchaseOrderId) revalidatePath(`/suppliers/invoices/${purchaseOrderId}`);
   pageSuccess(redirectPath, "Supplier payment saved.");

@@ -119,6 +119,7 @@ export default async function SupplierInvoiceDetailPage({
             <input type="hidden" name="purchase_order_id" value={invoice.id} />
             <h3 className="text-xl font-bold">Apply Payment</h3>
             <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" required /></div>
+            <div className="field"><label>Date</label><input className="input" name="payment_date" type="date" defaultValue={todayISO()} /></div>
             <div className="field"><label>Reference</label><input className="input" name="reference" /></div>
             <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} /></div>
             <SubmitButton pendingText="Recording...">Record Payment</SubmitButton>
