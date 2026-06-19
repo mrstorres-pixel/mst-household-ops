@@ -34,19 +34,19 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
       <section className="mb-5 grid gap-3 md:grid-cols-4">
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Active Suppliers</p>
-          <p className="mt-2 text-2xl font-bold">{suppliers.length}</p>
+          <p className="mt-2 text-xl font-bold md:text-2xl">{suppliers.length}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Total Payable</p>
-          <p className="mt-2 text-2xl font-bold">{money(supplierBalanceTotal)}</p>
+          <p className="mt-2 break-words text-xl font-bold md:text-2xl">{money(supplierBalanceTotal)}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Recent Credits / Deductions</p>
-          <p className="mt-2 text-2xl font-bold">{money(recentAdjustmentTotal)}</p>
+          <p className="mt-2 break-words text-xl font-bold md:text-2xl">{money(recentAdjustmentTotal)}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs font-bold uppercase text-[color:var(--muted-foreground)]">Recent Payments</p>
-          <p className="mt-2 text-2xl font-bold">{money(recentPaymentTotal)}</p>
+          <p className="mt-2 break-words text-xl font-bold md:text-2xl">{money(recentPaymentTotal)}</p>
         </div>
       </section>
 
@@ -87,22 +87,19 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
         </form>
 
         <aside className="grid content-start gap-5">
-          <section className="card table-wrap">
+          <section className="card">
             <div className="border-b border-[color:var(--border)] p-4">
               <h3 className="font-bold">Supplier Balances</h3>
             </div>
-            <table>
-              <thead><tr><th>Supplier</th><th>Balance</th></tr></thead>
-              <tbody>
-                {suppliers.slice(0, 12).map((supplier) => (
-                  <tr key={supplier.supplier_id}>
-                    <td>{supplier.name}</td>
-                    <td className="font-bold">{money(supplier.balance)}</td>
-                  </tr>
-                ))}
-                {!suppliers.length ? <tr><td colSpan={2}>No suppliers yet.</td></tr> : null}
-              </tbody>
-            </table>
+            <div className="supplier-balance-list">
+              {suppliers.slice(0, 16).map((supplier) => (
+                <div className="supplier-balance-row" key={supplier.supplier_id}>
+                  <span>{supplier.name}</span>
+                  <strong>{money(supplier.balance)}</strong>
+                </div>
+              ))}
+              {!suppliers.length ? <p className="p-4 text-sm text-[color:var(--muted-foreground)]">No suppliers yet.</p> : null}
+            </div>
           </section>
 
           <details className="card p-5">
@@ -118,8 +115,8 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
         </aside>
       </section>
 
-      <section className="mt-5 grid gap-5 xl:grid-cols-2">
-        <form data-save-filters="suppliers" className="card grid gap-3 p-4 xl:col-span-2 md:grid-cols-[1.3fr_1fr_1fr_auto_auto] md:items-end">
+      <section className="mt-5 grid gap-5">
+        <form data-save-filters="suppliers" className="card grid gap-3 p-4 md:grid-cols-[1.3fr_1fr_1fr_auto_auto] md:items-end">
           <div className="field">
             <label>Supplier</label>
             <select className="input" name="supplier_id" defaultValue={params.supplier_id ?? ""}>
@@ -138,74 +135,91 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
           <button className="btn" type="submit">Apply</button>
           <Link data-clear-saved-filter="suppliers" className="btn btn-secondary" href="/suppliers">Clear</Link>
         </form>
-        <section className="card table-wrap">
-          <div className="border-b border-[color:var(--border)] p-4">
-            <h3 className="font-bold">Recent Supplier Invoices</h3>
-          </div>
-          <table>
-            <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Open</th><th>Edit / Delete</th></tr></thead>
-            <tbody>
-              {supplierInvoices.map((invoice) => (
-                <tr key={invoice.id}>
-                  <td>{invoice.order_date}</td>
-                  <td>{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
-                  <td>{invoice.suppliers?.name}</td>
-                    <td><StatusBadge tone={Number(invoice.line_count ?? 1) > 1 ? "neutral" : "good"}>{invoice.items?.name}</StatusBadge></td>
-                    <td>{money(invoice.total)}</td>
-                  <td><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
-                  <td>
-                    <div className="flex flex-wrap gap-2">
-                      <Link className="btn btn-secondary" href={`/suppliers/invoices/${invoice.id}/edit`}>Edit</Link>
-                      <form action={deleteSupplierInvoice}>
-                        <input type="hidden" name="purchase_order_id" value={invoice.id} />
-                        <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message={`This deletes ${invoice.line_count ?? 1} item line${Number(invoice.line_count ?? 1) === 1 ? "" : "s"} under this supplier invoice/DR number, reverses stock movement, removes linked payments/adjustments, and logs the deletion.`} confirmLabel="Delete Supplier Invoice">Delete</ConfirmSubmitButton>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!supplierInvoices.length ? <tr><td colSpan={7}>No supplier invoices yet.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="card table-wrap">
-          <div className="border-b border-[color:var(--border)] p-4">
-            <h3 className="font-bold">Recent Supplier Deductions</h3>
-          </div>
-          <table>
-            <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount</th></tr></thead>
-            <tbody>
-              {adjustments.map((row) => <tr key={row.id}><td>{row.adjustment_date}</td><td>{row.suppliers?.name}</td><td><StatusBadge tone={row.adjustment_type === "damage" ? "danger" : row.adjustment_type === "credit" ? "neutral" : "warning"}>{row.adjustment_type}</StatusBadge></td><td>{row.items?.name ?? "-"}</td><td>{money(row.amount)}</td></tr>)}
-              {!adjustments.length ? <tr><td colSpan={5}>No supplier deductions yet.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="card table-wrap">
-          <div className="border-b border-[color:var(--border)] p-4">
-            <h3 className="font-bold">Supplier Payment History</h3>
-          </div>
-          <table>
-            <thead><tr><th>Date</th><th>Supplier</th><th>Reference</th><th>Invoice / DR</th><th>Amount</th><th>Notes</th></tr></thead>
-            <tbody>
-              {supplierPayments.map((payment) => {
-                const invoiceLabel = payment.purchase_orders?.supplier_invoice_number ?? (payment.purchase_orders?.id ? String(payment.purchase_orders.id).slice(0, 8) : "Total balance");
-                return (
-                  <tr key={payment.id}>
-                    <td>{payment.payment_date}</td>
-                    <td>{payment.suppliers?.name}</td>
-                    <td>{payment.reference ?? "-"}</td>
-                    <td>{invoiceLabel}</td>
-                    <td className="font-bold">{money(payment.amount)}</td>
-                    <td>{payment.notes ?? "-"}</td>
+        <details className="card activity-section" open>
+          <summary>
+            <span>Recent Supplier Invoices</span>
+            <StatusBadge tone={supplierInvoices.length ? "good" : "neutral"}>{supplierInvoices.length} rows</StatusBadge>
+          </summary>
+          <div className="table-wrap bounded-table">
+            <table className="compact-table">
+              <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Total</th><th>Details</th><th>Action</th></tr></thead>
+              <tbody>
+                {supplierInvoices.map((invoice) => (
+                  <tr key={invoice.id}>
+                    <td className="cell-date">{invoice.order_date}</td>
+                    <td className="cell-ref">{invoice.supplier_invoice_number ?? invoice.id.slice(0, 8)}</td>
+                    <td className="cell-name">{invoice.suppliers?.name}</td>
+                    <td className="cell-item"><StatusBadge tone={Number(invoice.line_count ?? 1) > 1 ? "neutral" : "good"}>{invoice.items?.name}</StatusBadge></td>
+                    <td className="cell-money font-bold">{money(invoice.total)}</td>
+                    <td className="cell-action"><Link className="font-bold text-[color:var(--primary)]" href={`/suppliers/invoices/${invoice.id}`}>Details</Link></td>
+                    <td className="cell-action">
+                      <div className="flex flex-nowrap gap-2">
+                        <Link className="btn btn-secondary" href={`/suppliers/invoices/${invoice.id}/edit`}>Edit</Link>
+                        <form action={deleteSupplierInvoice}>
+                          <input type="hidden" name="purchase_order_id" value={invoice.id} />
+                          <ConfirmSubmitButton pendingText="Deleting..." title="Delete supplier invoice?" message={`This deletes ${invoice.line_count ?? 1} item line${Number(invoice.line_count ?? 1) === 1 ? "" : "s"} under this supplier invoice/DR number, reverses stock movement, removes linked payments/adjustments, and logs the deletion.`} confirmLabel="Delete Supplier Invoice">Delete</ConfirmSubmitButton>
+                        </form>
+                      </div>
+                    </td>
                   </tr>
-                );
-              })}
-              {!supplierPayments.length ? <tr><td colSpan={6}>No supplier payments found for this filter.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
+                ))}
+                {!supplierInvoices.length ? <tr><td colSpan={7}>No supplier invoices found for this filter.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details className="card activity-section">
+          <summary>
+            <span>Recent Supplier Deductions</span>
+            <StatusBadge tone={adjustments.length ? "warning" : "neutral"}>{adjustments.length} rows</StatusBadge>
+          </summary>
+          <div className="table-wrap bounded-table">
+            <table className="compact-table">
+              <thead><tr><th>Date</th><th>Supplier</th><th>Type</th><th>Item</th><th>Amount</th></tr></thead>
+              <tbody>
+                {adjustments.map((row) => (
+                  <tr key={row.id}>
+                    <td className="cell-date">{row.adjustment_date}</td>
+                    <td className="cell-name">{row.suppliers?.name}</td>
+                    <td className="cell-ref"><StatusBadge tone={row.adjustment_type === "damage" ? "danger" : row.adjustment_type === "credit" ? "neutral" : "warning"}>{row.adjustment_type}</StatusBadge></td>
+                    <td className="cell-item">{row.items?.name ?? "-"}</td>
+                    <td className="cell-money font-bold">{money(row.amount)}</td>
+                  </tr>
+                ))}
+                {!adjustments.length ? <tr><td colSpan={5}>No supplier deductions found for this filter.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details className="card activity-section">
+          <summary>
+            <span>Supplier Payment History</span>
+            <StatusBadge tone={supplierPayments.length ? "good" : "neutral"}>{supplierPayments.length} rows</StatusBadge>
+          </summary>
+          <div className="table-wrap bounded-table">
+            <table className="compact-table">
+              <thead><tr><th>Date</th><th>Supplier</th><th>Reference</th><th>Invoice / DR</th><th>Amount</th><th>Notes</th></tr></thead>
+              <tbody>
+                {supplierPayments.map((payment) => {
+                  const invoiceLabel = payment.purchase_orders?.supplier_invoice_number ?? (payment.purchase_orders?.id ? String(payment.purchase_orders.id).slice(0, 8) : "Total balance");
+                  return (
+                    <tr key={payment.id}>
+                      <td className="cell-date">{payment.payment_date}</td>
+                      <td className="cell-name">{payment.suppliers?.name}</td>
+                      <td className="cell-ref">{payment.reference ?? "-"}</td>
+                      <td className="cell-ref">{invoiceLabel}</td>
+                      <td className="cell-money font-bold">{money(payment.amount)}</td>
+                      <td className="cell-item">{payment.notes ?? "-"}</td>
+                    </tr>
+                  );
+                })}
+                {!supplierPayments.length ? <tr><td colSpan={6}>No supplier payments found for this filter.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
 
       <section className="mt-5 card p-5">

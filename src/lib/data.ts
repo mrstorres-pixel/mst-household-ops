@@ -397,7 +397,7 @@ export async function listSupplierAdjustments(options: SupplierActivityOptions =
   if (options.supplierId) query = query.eq("supplier_id", options.supplierId);
   if (options.dateFrom) query = query.gte("adjustment_date", options.dateFrom);
   if (options.dateTo) query = query.lte("adjustment_date", options.dateTo);
-  const { data } = await query.order("adjustment_date", { ascending: false }).limit(200);
+  const { data } = await query.order("adjustment_date", { ascending: false }).limit(80);
   return data ?? [];
 }
 
@@ -411,7 +411,7 @@ export async function listSupplierPayments(options: SupplierActivityOptions = {}
   if (options.supplierId) query = query.eq("supplier_id", options.supplierId);
   if (options.dateFrom) query = query.gte("payment_date", options.dateFrom);
   if (options.dateTo) query = query.lte("payment_date", options.dateTo);
-  const { data } = await query.order("payment_date", { ascending: false }).order("created_at", { ascending: false }).limit(200);
+  const { data } = await query.order("payment_date", { ascending: false }).order("created_at", { ascending: false }).limit(80);
   return data ?? [];
 }
 
@@ -425,7 +425,7 @@ export async function listSupplierInvoices(options: SupplierActivityOptions = {}
   if (options.supplierId) summaryQuery = summaryQuery.eq("supplier_id", options.supplierId);
   if (options.dateFrom) summaryQuery = summaryQuery.gte("order_date", options.dateFrom);
   if (options.dateTo) summaryQuery = summaryQuery.lte("order_date", options.dateTo);
-  const { data, error } = await summaryQuery.order("order_date", { ascending: false }).limit(200);
+  const { data, error } = await summaryQuery.order("order_date", { ascending: false }).limit(80);
   if (!error && data) {
     return data.map((row) => ({
       ...row,
@@ -445,7 +445,7 @@ export async function listSupplierInvoices(options: SupplierActivityOptions = {}
   if (options.supplierId) fallbackQuery = fallbackQuery.eq("supplier_id", options.supplierId);
   if (options.dateFrom) fallbackQuery = fallbackQuery.gte("order_date", options.dateFrom);
   if (options.dateTo) fallbackQuery = fallbackQuery.lte("order_date", options.dateTo);
-  const { data: fallbackData } = await fallbackQuery.order("order_date", { ascending: false }).limit(200);
+  const { data: fallbackData } = await fallbackQuery.order("order_date", { ascending: false }).limit(80);
   return groupSupplierInvoiceRows(fallbackData ?? []);
 }
 
