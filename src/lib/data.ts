@@ -747,22 +747,84 @@ export async function getCutoffReport(date: string) {
   noStore();
   if (!hasSupabaseEnv()) return null;
   const supabase = await createClient();
-  const [customers, suppliers, stock, saved] = await Promise.all([
-    supabase.from("customer_balances").select("balance"),
-    supabase.from("supplier_balances").select("balance"),
-    supabase.from("inventory_stock_value").select("stock_value").maybeSingle(),
+  const [customerLedger, purchaseOrders, supplierPayments, supplierAdjustments, movements, items, saved] = await Promise.all([
+    supabase
+      .from("customer_ledger_entries")
+      .select("debit, credit, entry_type")
+      .lte("entry_date", date),
+    supabase
+      .from("purchase_orders")
+      .select("id, total")
+      .lte("order_date", date),
+    supabase
+      .from("supplier_payments")
+      .select("id, amount")
+      .lte("payment_date", date),
+    supabase
+      .from("supplier_adjustments")
+      .select("id, amount, adjustment_type, reason")
+      .lte("adjustment_date", date),
+    supabase
+      .from("inventory_movements")
+      .select("item_id, quantity_delta")
+      .lte("movement_date", date),
+    supabase
+      .from("items")
+      .select("id, unit_cost, is_active"),
     supabase.from("cutoff_summaries").select("*").eq("cutoff_date", date).maybeSingle()
   ]);
-  const sum = (rows?: Row[] | null, key = "balance") => (rows ?? []).reduce((total, row) => total + Number(row[key] ?? 0), 0);
-  const customerBalance = sum(customers.data);
-  const supplierBalance = sum(suppliers.data);
-  const stockValue = Number(stock.data?.stock_value ?? 0);
+  const customerRows = customerLedger.data ?? [];
+  const purchaseRows = purchaseOrders.data ?? [];
+  const paymentRows = supplierPayments.data ?? [];
+  const adjustmentRows = supplierAdjustments.data ?? [];
+  const movementRows = movements.data ?? [];
+  const itemRows = items.data ?? [];
+  const activeItemCostById = new Map(
+    itemRows
+      .filter((item) => item.is_active !== false)
+      .map((item) => [String(item.id), Number(item.unit_cost ?? 0)])
+  );
+  const quantityByItemId = new Map<string, number>();
+  for (const movement of movementRows) {
+    const itemId = String(movement.item_id ?? "");
+    if (!itemId || !activeItemCostById.has(itemId)) continue;
+    quantityByItemId.set(itemId, (quantityByItemId.get(itemId) ?? 0) + Number(movement.quantity_delta ?? 0));
+  }
+  const stockValue = Array.from(quantityByItemId.entries()).reduce((total, [itemId, quantity]) => {
+    return total + quantity * (activeItemCostById.get(itemId) ?? 0);
+  }, 0);
+  const customerBalance = customerRows.reduce((total, row) => total + Number(row.debit ?? 0) - Number(row.credit ?? 0), 0);
+  const supplierPurchases = purchaseRows.reduce((total, row) => total + Number(row.total ?? 0), 0);
+  const supplierPaid = paymentRows.reduce((total, row) => total + Number(row.amount ?? 0), 0);
+  const supplierAdjusted = adjustmentRows.reduce((total, row) => total + Number(row.amount ?? 0), 0);
+  const supplierBalance = supplierPurchases - supplierPaid - supplierAdjusted;
+  const customerOpeningBalance = customerRows
+    .filter((row) => row.entry_type === "opening_balance")
+    .reduce((total, row) => total + Number(row.debit ?? 0) - Number(row.credit ?? 0), 0);
+  const supplierOpeningBalance = adjustmentRows
+    .filter((row) => String(row.reason ?? "").toLowerCase().includes("opening"))
+    .reduce((total, row) => total + Number(row.amount ?? 0), 0);
   return {
     saved: saved.data,
     customerBalance,
     supplierBalance,
     stockValue,
-    netPosition: customerBalance - supplierBalance + stockValue
+    netPosition: customerBalance - supplierBalance + stockValue,
+    sourceCounts: {
+      customerEntries: customerRows.length,
+      supplierInvoices: purchaseRows.length,
+      supplierPayments: paymentRows.length,
+      supplierAdjustments: adjustmentRows.length,
+      stockMovements: movementRows.length,
+      stockItems: quantityByItemId.size
+    },
+    components: {
+      customerOpeningBalance,
+      supplierPurchases,
+      supplierPaid,
+      supplierAdjusted,
+      supplierOpeningBalance
+    }
   };
 }
 

@@ -2356,7 +2356,8 @@ export async function saveCutoffSummary(formData: FormData) {
   const customer_balance_total = asNumber(formData.get("customer_balance_total"));
   const supplier_balance_total = asNumber(formData.get("supplier_balance_total"));
   const stock_value = asNumber(formData.get("stock_value"));
-  await supabase.from("cutoff_summaries").upsert(
+  const returnPath = text(formData, "return_path") || `/reports/cutoff?date=${encodeURIComponent(cutoff_date)}`;
+  const { error } = await supabase.from("cutoff_summaries").upsert(
     {
       cutoff_date,
       customer_balance_total,
@@ -2366,7 +2367,15 @@ export async function saveCutoffSummary(formData: FormData) {
     },
     { onConflict: "cutoff_date" }
   );
+  if (error) pageError(returnPath, `Cutoff summary could not be saved: ${errorMessage(error)}`);
+  await writeAudit(supabase, "upsert", "cutoff_summary", null, `Saved cutoff summary for ${cutoff_date}`, {
+    customer_balance_total,
+    supplier_balance_total,
+    stock_value,
+    net_position: customer_balance_total - supplier_balance_total + stock_value
+  });
   revalidatePath("/reports/cutoff");
+  pageSuccess(returnPath, "Cutoff summary saved.");
 }
 
 function supplierCutoffReturnPath(formData: FormData) {
