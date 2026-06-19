@@ -6,34 +6,45 @@ import { SubmitButton } from "@/components/submit-button";
 import { getSupplierCutoffReport, listSupplierRows } from "@/lib/data";
 import { money, todayISO } from "@/lib/format";
 
+function isISODate(value?: string) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function monthEndDay(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
 function cutoffDates(cutoff: string, fallbackDate = todayISO()) {
-  const base = /^\d{4}-\d{2}-\d{2}$/.test(cutoff) ? new Date(`${cutoff}T00:00:00`) : new Date(`${fallbackDate}T00:00:00`);
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const day = base.getDate();
+  const date = isISODate(cutoff) ? cutoff : fallbackDate;
+  const [year, month, day] = date.split("-").map(Number);
   const startDay = day <= 15 ? 1 : 16;
-  const endDay = day <= 15 ? 15 : new Date(year, month + 1, 0).getDate();
-  const toISO = (date: Date) => date.toISOString().slice(0, 10);
+  const endDay = day <= 15 ? 15 : monthEndDay(year, month);
+  const toISO = (targetDay: number) => `${year}-${String(month).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
   return {
-    startDate: toISO(new Date(year, month, startDay)),
-    endDate: toISO(new Date(year, month, endDay)),
-    label: `${toISO(new Date(year, month, startDay))} to ${toISO(new Date(year, month, endDay))}`
+    startDate: toISO(startDay),
+    endDate: toISO(endDay),
+    label: `${toISO(startDay)} to ${toISO(endDay)}`
   };
 }
 
 export default async function SupplierCutoffPage({
   searchParams
 }: {
-  searchParams: Promise<{ supplier_id?: string; cutoff?: string; error?: string; success?: string }>;
+  searchParams: Promise<{ supplier_id?: string; cutoff?: string; start_date?: string; end_date?: string; error?: string; success?: string }>;
 }) {
   const params = await searchParams;
   const suppliers = await listSupplierRows();
   const supplierId = params.supplier_id ?? suppliers[0]?.id ?? "";
   const cutoff = params.cutoff ?? todayISO();
-  const { startDate, endDate, label } = cutoffDates(cutoff);
+  const defaultRange = cutoffDates(cutoff);
+  const selectedStartDate = isISODate(params.start_date) ? params.start_date! : defaultRange.startDate;
+  const selectedEndDate = isISODate(params.end_date) ? params.end_date! : defaultRange.endDate;
+  const startDate = selectedStartDate <= selectedEndDate ? selectedStartDate : selectedEndDate;
+  const endDate = selectedStartDate <= selectedEndDate ? selectedEndDate : selectedStartDate;
+  const label = `${startDate} to ${endDate}`;
   const report = supplierId ? await getSupplierCutoffReport(supplierId, startDate, endDate) : null;
   const supplierName = report?.supplier?.name ?? suppliers.find((supplier) => supplier.id === supplierId)?.name ?? "";
-  const returnPath = `/reports/suppliers/cutoff?supplier_id=${encodeURIComponent(supplierId)}&cutoff=${encodeURIComponent(cutoff)}`;
+  const returnPath = `/reports/suppliers/cutoff?supplier_id=${encodeURIComponent(supplierId)}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
   const blankCounterRows = Math.max(0, 8 - (report?.counterRows.length ?? 0));
   const blankPaymentRows = Math.max(0, 8 - (report?.paymentRows.length ?? 0));
 
@@ -42,11 +53,21 @@ export default async function SupplierCutoffPage({
       <PageHeader title="Supplier Cutoff Counter" description="15th and month-end supplier invoice counter with cheque payment list." />
       <PageNotice error={params.error} success={params.success} />
       <div className="no-print mb-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-        <form className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_auto]">
-          <select className="input" name="supplier_id" defaultValue={supplierId}>
-            {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-          </select>
-          <input className="input" name="cutoff" type="date" defaultValue={cutoff} />
+        <form className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_180px_auto]">
+          <div className="field">
+            <label>Supplier</label>
+            <select className="input" name="supplier_id" defaultValue={supplierId}>
+              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>From</label>
+            <input className="input" name="start_date" type="date" defaultValue={startDate} />
+          </div>
+          <div className="field">
+            <label>To</label>
+            <input className="input" name="end_date" type="date" defaultValue={endDate} />
+          </div>
           <button className="btn" type="submit">View Cutoff</button>
         </form>
         <PrintButton label="Print Cutoff" />
