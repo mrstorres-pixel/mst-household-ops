@@ -1294,6 +1294,7 @@ export async function updatePostedInvoice(formData: FormData) {
 export async function repairInvoiceInventoryMovements(formData: FormData) {
   const supabase = await requireSupabase();
   const invoiceId = text(formData, "invoice_id");
+  const repairItemId = text(formData, "item_id") || null;
   const returnPath = internalReturnPath(text(formData, "return_path"), invoiceId ? `/invoices/${invoiceId}/edit` : "/inventory");
   if (!invoiceId) pageError(returnPath, "Select an invoice before repairing stock movements.");
 
@@ -1320,6 +1321,7 @@ export async function repairInvoiceInventoryMovements(formData: FormData) {
   const expectedByItem = new Map<string, number>();
   for (const line of invoiceItems ?? []) {
     const itemId = String(line.item_id ?? "");
+    if (repairItemId && itemId !== repairItemId) continue;
     if (!itemId) continue;
     expectedByItem.set(itemId, (expectedByItem.get(itemId) ?? 0) + Number(line.quantity ?? 0));
   }
@@ -1348,7 +1350,8 @@ export async function repairInvoiceInventoryMovements(formData: FormData) {
 
   await insertInventoryMovementsChecked(supabase, missingRows, returnPath, "Missing invoice inventory movement could not be repaired");
   await writeAudit(supabase, "repair_stock_movements", "invoice", invoiceId, `Repaired missing stock movements for ${invoice.invoice_number}`, {
-    movement_count: missingRows.length
+    movement_count: missingRows.length,
+    item_id: repairItemId
   });
   revalidatePath("/inventory");
   revalidatePath(`/invoices/${invoiceId}/edit`);
@@ -1851,6 +1854,170 @@ export async function recordPayment(formData: FormData) {
   revalidatePath("/payments");
   revalidatePath(`/customers/${customerId}`);
   pageSuccess("/payments", "Payment saved.");
+}
+
+async function ensurePaymentAllocationAllowed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  invoiceId: string | null,
+  customerId: string,
+  allocationAmount: number,
+  previousAllocationAmount = 0
+) {
+  if (!invoiceId) return;
+  const { data: invoiceStatus, error: invoiceError } = await supabase
+    .from("invoice_payment_status")
+    .select("invoice_id, customer_id, remaining_balance")
+    .eq("invoice_id", invoiceId)
+    .single();
+  if (invoiceError || !invoiceStatus) pageError("/payments", `Selected invoice could not be checked: ${errorMessage(invoiceError)}`);
+  if (invoiceStatus.customer_id !== customerId) pageError("/payments", "Selected invoice does not belong to the selected customer.");
+  const availableBalance = Number(invoiceStatus.remaining_balance ?? 0) + previousAllocationAmount;
+  if (allocationAmount > availableBalance) {
+    pageError("/payments", `Allocated amount is higher than the invoice remaining balance of ${availableBalance}.`);
+  }
+}
+
+export async function updatePayment(formData: FormData) {
+  const supabase = await requireSupabase();
+  const paymentId = text(formData, "payment_id");
+  const customerId = text(formData, "customer_id");
+  const subaccountId = text(formData, "subaccount_id") || null;
+  const method = text(formData, "method") as "cash" | "bank" | "cheque";
+  const amount = asNumber(formData.get("amount"));
+  const invoiceId = text(formData, "invoice_id") || null;
+  const allocationAmount = asNumber(formData.get("allocation_amount")) || amount;
+  const paymentDate = text(formData, "payment_date") || todayISO();
+  const reference = text(formData, "reference") || null;
+  const bankName = text(formData, "bank_name") || null;
+  if (!paymentId) pageError("/payments", "Select a payment before editing.");
+  if (!customerId) pageError("/payments", "Select a customer before saving a payment.");
+  if (!["cash", "bank", "cheque"].includes(method)) pageError("/payments", "Select a valid payment method.");
+  if (amount <= 0) pageError("/payments", "Payment amount must be greater than zero.");
+  if (allocationAmount <= 0) pageError("/payments", "Allocated amount must be greater than zero.");
+  if (allocationAmount > amount) pageError("/payments", "Allocated amount cannot be higher than the payment amount.");
+  if (method === "cheque" && !reference) pageError("/payments", "Cheque payments need a cheque number.");
+
+  const { data: existing, error: existingError } = await supabase
+    .from("payments")
+    .select("id, customer_id, method, amount, payment_allocations(invoice_id, amount), cheques(id, status)")
+    .eq("id", paymentId)
+    .single();
+  if (existingError || !existing) pageError("/payments", `Payment could not be loaded: ${errorMessage(existingError)}`);
+  const allocations = existing.payment_allocations ?? [];
+  const previousAllocation = allocations.find((allocation) => allocation.invoice_id === invoiceId);
+  await ensurePaymentAllocationAllowed(supabase, invoiceId, customerId, allocationAmount, Number(previousAllocation?.amount ?? 0));
+
+  const { error: paymentError } = await supabase
+    .from("payments")
+    .update({
+      customer_id: customerId,
+      subaccount_id: subaccountId,
+      method,
+      amount,
+      payment_date: paymentDate,
+      reference,
+      notes: text(formData, "notes") || null
+    })
+    .eq("id", paymentId);
+  if (paymentError) pageError("/payments", `Payment could not be updated: ${errorMessage(paymentError)}`);
+
+  await supabase.from("payment_allocations").delete().eq("payment_id", paymentId);
+  if (invoiceId) {
+    const { error: allocationError } = await supabase.from("payment_allocations").insert({
+      payment_id: paymentId,
+      invoice_id: invoiceId,
+      subaccount_id: subaccountId,
+      amount: allocationAmount
+    });
+    if (allocationError) pageError("/payments", `Payment allocation could not be updated: ${errorMessage(allocationError)}`);
+  }
+
+  await supabase.from("customer_ledger_entries").delete().eq("payment_id", paymentId);
+  const { error: ledgerError } = await supabase.from("customer_ledger_entries").insert({
+    customer_id: customerId,
+    subaccount_id: subaccountId,
+    payment_id: paymentId,
+    entry_type: method === "cheque" ? "cheque_received" : "payment",
+    description: `${method.toUpperCase()} payment`,
+    debit: 0,
+    credit: amount,
+    entry_date: paymentDate
+  });
+  if (ledgerError) pageError("/payments", `Customer balance entry could not be updated: ${errorMessage(ledgerError)}`);
+
+  const existingCheque = Array.isArray(existing.cheques) ? existing.cheques[0] : existing.cheques;
+  if (method === "cheque") {
+    const chequePayload = {
+      payment_id: paymentId,
+      customer_id: customerId,
+      cheque_number: reference,
+      bank_name: bankName,
+      amount,
+      received_date: paymentDate
+    };
+    if (existingCheque?.id) {
+      const { error: chequeError } = await supabase.from("cheques").update(chequePayload).eq("id", existingCheque.id);
+      if (chequeError) pageError("/payments", `Cheque record could not be updated: ${errorMessage(chequeError)}`);
+    } else {
+      const { error: chequeError } = await supabase.from("cheques").insert(chequePayload);
+      if (chequeError) pageError("/payments", `Cheque record could not be created: ${errorMessage(chequeError)}`);
+    }
+    const status = String(existingCheque?.status ?? "received");
+    if (status === "bounced" || status === "cancelled") {
+      const { error: reversalError } = await supabase.from("customer_ledger_entries").insert({
+        customer_id: customerId,
+        subaccount_id: subaccountId,
+        payment_id: paymentId,
+        entry_type: `cheque_${status}`,
+        description: `Cheque ${status}`,
+        debit: amount,
+        credit: 0,
+        entry_date: paymentDate
+      });
+      if (reversalError) pageError("/payments", `Cheque balance correction could not be updated: ${errorMessage(reversalError)}`);
+    }
+  } else {
+    const { error: chequeDeleteError } = await supabase.from("cheques").delete().eq("payment_id", paymentId);
+    if (chequeDeleteError) pageError("/payments", `Old cheque record could not be removed: ${errorMessage(chequeDeleteError)}`);
+  }
+
+  await writeAudit(supabase, "update", "payment", paymentId, `Updated ${method} payment`, {
+    previous_customer_id: existing.customer_id,
+    previous_method: existing.method,
+    previous_amount: existing.amount,
+    amount,
+    invoice_id: invoiceId
+  });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${existing.customer_id}`);
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/reports/daily");
+  pageSuccess("/payments", "Payment updated.");
+}
+
+export async function deletePayment(formData: FormData) {
+  const supabase = await requireSupabase();
+  const paymentId = text(formData, "payment_id");
+  if (!paymentId) pageError("/payments", "Select a payment before deleting.");
+  const { data: payment, error: paymentError } = await supabase
+    .from("payments")
+    .select("id, customer_id, amount, method")
+    .eq("id", paymentId)
+    .single();
+  if (paymentError || !payment) pageError("/payments", `Payment could not be loaded: ${errorMessage(paymentError)}`);
+
+  await supabase.from("payment_allocations").delete().eq("payment_id", paymentId);
+  await supabase.from("customer_ledger_entries").delete().eq("payment_id", paymentId);
+  const { error: chequeError } = await supabase.from("cheques").delete().eq("payment_id", paymentId);
+  if (chequeError) pageError("/payments", `Linked cheque record could not be removed: ${errorMessage(chequeError)}`);
+  const { error: deleteError } = await supabase.from("payments").delete().eq("id", paymentId);
+  if (deleteError) pageError("/payments", `Payment could not be deleted: ${errorMessage(deleteError)}`);
+
+  await writeAudit(supabase, "delete", "payment", paymentId, `Deleted ${payment.method} payment`, { amount: payment.amount });
+  revalidatePath("/payments");
+  revalidatePath(`/customers/${payment.customer_id}`);
+  revalidatePath("/reports/daily");
+  pageSuccess("/payments", "Payment deleted.");
 }
 
 export async function updateChequeStatus(formData: FormData) {

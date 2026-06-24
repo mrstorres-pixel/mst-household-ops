@@ -110,6 +110,7 @@ export default async function InventoryItemDetailPage({
                         {missingSaleMovement ? (
                           <form action={repairInvoiceInventoryMovements} className="flex flex-wrap items-center gap-2">
                             <input type="hidden" name="invoice_id" value={line.invoice_id} />
+                            <input type="hidden" name="item_id" value={item.id} />
                             <input type="hidden" name="return_path" value={`/inventory/${item.id}`} />
                             <StatusBadge tone="danger">Missing</StatusBadge>
                             <SubmitButton className="btn btn-secondary" pendingText="Repairing...">Repair</SubmitButton>

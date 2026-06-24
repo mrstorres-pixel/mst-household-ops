@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { deletePayment, updatePayment } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PageHeader } from "@/components/page-header";
 import { PageNotice } from "@/components/page-notice";
 import { PaymentForm } from "@/components/payment-form";
 import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { listCustomerRows, listOpenInvoices, listPayments } from "@/lib/data";
 import { money } from "@/lib/format";
 
@@ -79,23 +82,88 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
               <h3 className="font-bold">Payment History</h3>
             </div>
             <table>
-              <thead><tr><th>Date</th><th>Customer</th><th>Method</th><th>Amount</th><th>Applied Invoice</th><th>Attachment</th><th>Reference</th></tr></thead>
+              <thead><tr><th>Date</th><th>Customer</th><th>Method</th><th>Amount</th><th>Applied Invoice</th><th>Attachment</th><th>Reference</th><th>Actions</th></tr></thead>
               <tbody>
                 {filteredPayments.map((payment) => {
                   const allocation = payment.payment_allocations?.[0];
+                  const cheque = Array.isArray(payment.cheques) ? payment.cheques[0] : payment.cheques;
+                  const allocatedInvoiceId = allocation?.invoice_id ?? "";
+                  const invoiceOptions = [
+                    ...(allocatedInvoiceId && allocation?.invoices ? [allocation.invoices] : []),
+                    ...openInvoices
+                      .filter((invoice) => invoice.customer_id === payment.customer_id && invoice.invoice_id !== allocatedInvoiceId)
+                      .map((invoice) => ({ id: invoice.invoice_id, invoice_number: invoice.invoice_number }))
+                  ];
                   return (
                     <tr key={payment.id}>
-                      <td>{payment.payment_date}</td>
-                      <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${payment.customer_id}`}>{payment.customers?.name}</Link></td>
-                      <td>{methodBadge(payment.method)}</td>
-                      <td className="font-bold">{money(payment.amount)}</td>
-                      <td>{allocation?.invoices?.invoice_number ? `${allocation.invoices.invoice_number} - ${money(allocation.amount)}` : "Total balance"}</td>
-                      <td>{payment.app_files?.id ? <a className="btn btn-secondary" href={`/attachments/${payment.app_files.id}`} target="_blank">View</a> : "-"}</td>
-                      <td>{payment.reference ?? "-"}</td>
+                        <td>{payment.payment_date}</td>
+                        <td><Link className="font-bold text-[color:var(--primary)]" href={`/customers/${payment.customer_id}`}>{payment.customers?.name}</Link></td>
+                        <td>{methodBadge(payment.method)}</td>
+                        <td className="font-bold">{money(payment.amount)}</td>
+                        <td>{allocation?.invoices?.invoice_number ? `${allocation.invoices.invoice_number} - ${money(allocation.amount)}` : "Total balance"}</td>
+                        <td>{payment.app_files?.id ? <a className="btn btn-secondary" href={`/attachments/${payment.app_files.id}`} target="_blank">View</a> : "-"}</td>
+                        <td>{payment.reference ?? "-"}</td>
+                        <td>
+                          <details>
+                            <summary className="btn btn-secondary cursor-pointer">Edit</summary>
+                            <div className="mt-3 grid gap-3">
+                              <form action={updatePayment} className="grid min-w-[36rem] gap-3 rounded-lg border border-[color:var(--border)] p-3">
+                                <input type="hidden" name="payment_id" value={payment.id} />
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <div className="field">
+                                    <label>Customer</label>
+                                    <select className="input" name="customer_id" defaultValue={payment.customer_id} required>
+                                      {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="field">
+                                    <label>Sub-balance</label>
+                                    <select className="input" name="subaccount_id" defaultValue={payment.subaccount_id ?? ""}>
+                                      <option value="">Main balance</option>
+                                      {(customers.find((customer) => customer.id === payment.customer_id)?.customer_subaccounts ?? []).map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="field">
+                                    <label>Method</label>
+                                    <select className="input" name="method" defaultValue={payment.method}>
+                                      <option value="cash">Cash</option>
+                                      <option value="bank">Bank</option>
+                                      <option value="cheque">Cheque</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-4">
+                                  <div className="field"><label>Amount</label><input className="input" name="amount" type="number" step="0.01" defaultValue={payment.amount} required /></div>
+                                  <div className="field"><label>Allocate Amount</label><input className="input" name="allocation_amount" type="number" step="0.01" defaultValue={allocation?.amount ?? payment.amount} required /></div>
+                                  <div className="field"><label>Date</label><input className="input" name="payment_date" type="date" defaultValue={payment.payment_date} /></div>
+                                  <div className="field"><label>Reference</label><input className="input" name="reference" defaultValue={payment.reference ?? ""} /></div>
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="field">
+                                    <label>Apply To Invoice</label>
+                                    <select className="input" name="invoice_id" defaultValue={allocatedInvoiceId}>
+                                      <option value="">Reduce total balance only</option>
+                                      {invoiceOptions.map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.invoice_number}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="field"><label>Bank Name</label><input className="input" name="bank_name" defaultValue={cheque?.bank_name ?? ""} /></div>
+                                </div>
+                                <div className="field"><label>Notes</label><textarea className="input" name="notes" rows={2} defaultValue={payment.notes ?? ""} /></div>
+                                <div className="flex flex-wrap gap-2">
+                                  <SubmitButton className="btn" pendingText="Saving...">Save Payment</SubmitButton>
+                                </div>
+                              </form>
+                              <form action={deletePayment}>
+                                <input type="hidden" name="payment_id" value={payment.id} />
+                                <ConfirmSubmitButton pendingText="Deleting..." title="Delete payment?" message="This removes the payment, its customer balance entry, invoice allocation, and linked cheque record if any." confirmLabel="Delete Payment">Delete</ConfirmSubmitButton>
+                              </form>
+                            </div>
+                          </details>
+                        </td>
                     </tr>
                   );
                 })}
-                {!filteredPayments.length ? <tr><td colSpan={7}>No payments match these filters.</td></tr> : null}
+                {!filteredPayments.length ? <tr><td colSpan={8}>No payments match these filters.</td></tr> : null}
               </tbody>
             </table>
           </section>
