@@ -67,7 +67,7 @@ export function SupplierInvoiceDeductions({ items, initialLines }: { items: Item
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h4 className="font-bold">Supplier Returns / Damage / Credits</h4>
-            <p className="text-sm text-[color:var(--muted-foreground)]">Returns and damage with quantity reduce stock; credit-only lines only reduce payable.</p>
+            <p className="text-sm text-[color:var(--muted-foreground)]">Returns and damage are recorded against supplier payable only; they do not change inventory counts.</p>
           </div>
           <StatusBadge tone={total > 0 ? "warning" : "neutral"}>{money(total)}</StatusBadge>
         </div>
