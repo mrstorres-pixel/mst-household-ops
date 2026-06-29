@@ -18,6 +18,21 @@ export default async function PrintInvoicePage({
   if (!data) notFound();
   const deductionsTotal = Number(data.invoice.returns_total ?? 0);
   const returnsOnly = query.print === "returns";
+  const returnRows = data.deductions.length
+    ? data.deductions
+    : returnsOnly && deductionsTotal > 0
+      ? data.lines.map((line, index) => ({
+          type: "return",
+          item_id: line.item_id,
+          item_name: line.description,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+          charge: 0,
+          amount: line.line_total,
+          reason: "",
+          sort_order: Number(line.sort_order ?? index)
+        }))
+      : [];
 
   return (
     <main className="mx-auto max-w-4xl bg-white p-8">
@@ -66,13 +81,13 @@ export default async function PrintInvoicePage({
           </tbody>
         </table>
       ) : null}
-      {data.deductions.length ? (
+      {returnRows.length ? (
         <section className="mt-6">
           <h2 className="mb-2 text-lg font-bold">Returns</h2>
           <table>
             <thead><tr><th>Stock</th><th>Item / Description</th><th>Qty</th><th>Unit Price</th><th>Charge</th><th>Deduction</th></tr></thead>
             <tbody>
-              {data.deductions.map((deduction, index) => (
+              {returnRows.map((deduction, index) => (
                 <tr key={`${deduction.type}-${deduction.item_id ?? "manual"}-${index}`}>
                   <td>{deduction.type === "damage" ? "Bad stock" : "Good stock"}</td>
                   <td>
