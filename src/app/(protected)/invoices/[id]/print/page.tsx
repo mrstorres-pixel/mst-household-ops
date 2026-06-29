@@ -21,17 +21,17 @@ export default async function PrintInvoicePage({
   const returnRows = data.deductions.length
     ? data.deductions
     : returnsOnly && deductionsTotal > 0
-      ? data.lines.map((line, index) => ({
+      ? [{
           type: "return",
-          item_id: line.item_id,
-          item_name: line.description,
-          quantity: line.quantity,
-          unit_price: line.unit_price,
+          item_id: null,
+          item_name: "Return items",
+          quantity: null,
+          unit_price: 0,
           charge: 0,
-          amount: line.line_total,
-          reason: "",
-          sort_order: Number(line.sort_order ?? index)
-        }))
+          amount: deductionsTotal,
+          reason: "Detailed return items were not saved for this invoice.",
+          sort_order: 0
+        }]
       : [];
 
   return (
