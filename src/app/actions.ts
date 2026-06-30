@@ -868,8 +868,8 @@ export async function createInvoice(formData: FormData) {
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
     pageError("/invoices/new", "Bad-stock returns need an item and quantity so the return can be tracked.");
   }
-  if (deductions.some((deduction) => deduction.type === "return" && deduction.quantity > 0 && !deduction.item_id)) {
-    pageError("/invoices/new", "Return deductions with quantity need an item so inventory can be tracked.");
+  if (deductions.some((deduction) => !deduction.item_id || deduction.quantity <= 0)) {
+    pageError("/invoices/new", "Every return deduction needs an item and quantity so the return slip can show itemized details.");
   }
 
   const deductionsTotal = deductions.reduce((total, deduction) => total + deduction.amount, 0);
@@ -1122,8 +1122,8 @@ export async function updatePostedInvoice(formData: FormData) {
   if (deductions.some((deduction) => deduction.type === "damage" && (!deduction.item_id || deduction.quantity <= 0))) {
     pageError(`/invoices/${invoiceId}/edit`, "Bad-stock returns need an item and quantity so the return can be tracked.");
   }
-  if (deductions.some((deduction) => deduction.type === "return" && deduction.quantity > 0 && !deduction.item_id)) {
-    pageError(`/invoices/${invoiceId}/edit`, "Return deductions with quantity need an item so inventory can be tracked.");
+  if (deductions.some((deduction) => !deduction.item_id || deduction.quantity <= 0)) {
+    pageError(`/invoices/${invoiceId}/edit`, "Every return deduction needs an item and quantity so the return slip can show itemized details.");
   }
 
   const subtotal = lines.reduce((sum, line) => sum + line.line_total, 0);

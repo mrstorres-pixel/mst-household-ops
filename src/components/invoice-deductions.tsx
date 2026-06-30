@@ -94,7 +94,7 @@ export function InvoiceDeductions({ items, initialLines }: { items: ItemOption[]
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold">Returns</h3>
-            <p className="text-sm text-[color:var(--muted-foreground)]">Good stock returns go back to sellable inventory. Bad stock is tracked as damage/supplier issue.</p>
+            <p className="text-sm text-[color:var(--muted-foreground)]">Every return needs an item and quantity so the return slip prints itemized details.</p>
           </div>
           <StatusBadge tone={total > 0 ? "warning" : "neutral"}>{money(total)}</StatusBadge>
         </div>
